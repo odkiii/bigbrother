@@ -12,17 +12,24 @@ import type {
   SiteCheckResult,
   SiteConfig,
 } from "@/lib/types";
-import { checkAllSites } from "@/lib/health";
+import {
+  runAllSiteProbes,
+  type DeepRunOptions,
+} from "@/lib/probes/runner";
 import { randomUUID } from "crypto";
 
 const DOWN_DEDUPE_SEC = 15 * 60;
+const DEGRADED_DEDUPE_SEC = 20 * 60;
 const ERROR_DEDUPE_SEC = 5 * 60;
 
-export async function runHealthSweep(sites: SiteConfig[]): Promise<{
+export async function runHealthSweep(
+  sites: SiteConfig[],
+  options: DeepRunOptions = { mode: "deep" },
+): Promise<{
   results: SiteCheckResult[];
   alertsSent: number;
 }> {
-  const results = await checkAllSites(sites);
+  const results = await runAllSiteProbes(sites, options);
   let alertsSent = 0;
 
   for (const result of results) {
@@ -34,28 +41,73 @@ export async function runHealthSweep(sites: SiteConfig[]): Promise<{
 
     const site = sites.find((s) => s.id === result.siteId);
     const name = site?.name ?? result.siteId;
+    const summary = result.probeSummary
+      ? `probes: ${result.probeSummary.total}, fail: ${result.probeSummary.failed}, warn: ${result.probeSummary.warnings}`
+      : "";
 
     if (result.status === "down") {
-      const key = `down:${result.siteId}:${result.error ?? result.httpStatus}`;
+      const key = `down:${result.siteId}:${hashLite(result.error ?? "down")}`;
       const fresh = await claimDedupe(key, DOWN_DEDUPE_SEC);
-      const wasUp = !previous || previous.status === "up";
-      if (fresh || wasUp) {
+      const wasOk =
+        !previous || previous.status === "up" || previous.status === "degraded";
+      if (fresh || wasOk) {
+        const details = (result.findings ?? [])
+          .filter((f) => !f.ok)
+          .slice(0, 8)
+          .map((f) => `• [${f.kind}/${f.severity}] ${f.name}: ${f.message}`)
+          .join("\n");
         const ok = await sendTelegramMessage(
           [
-            `🔴 DOWN: ${name}`,
+            `🔴 PROBLEM: ${name}`,
             `url: ${result.url}`,
-            `error: ${result.error ?? "unknown"}`,
-            `latency: ${result.latencyMs ?? "?"}ms`,
+            summary,
+            details || `error: ${result.error ?? "unknown"}`,
+            `at: ${result.checkedAt}`,
+          ].join("\n"),
+        );
+        if (ok.ok) alertsSent += 1;
+
+        // Also store as probe error for /errors
+        await pushError({
+          id: randomUUID(),
+          siteId: result.siteId,
+          message: result.error ?? "probe failures",
+          source: "probe",
+          url: result.url,
+          receivedAt: result.checkedAt,
+          meta: { findings: result.findings?.slice(0, 10) },
+        });
+      }
+    } else if (result.status === "degraded") {
+      const key = `degraded:${result.siteId}:${hashLite(result.error ?? "deg")}`;
+      const fresh = await claimDedupe(key, DEGRADED_DEDUPE_SEC);
+      if (fresh) {
+        const details = (result.findings ?? [])
+          .filter((f) => !f.ok)
+          .slice(0, 8)
+          .map((f) => `• [${f.kind}] ${f.name}: ${f.message}`)
+          .join("\n");
+        const ok = await sendTelegramMessage(
+          [
+            `🟡 DEGRADED: ${name}`,
+            `url: ${result.url}`,
+            summary,
+            details,
             `at: ${result.checkedAt}`,
           ].join("\n"),
         );
         if (ok.ok) alertsSent += 1;
       }
-    } else if (previous?.status === "down" && result.status === "up") {
+    } else if (
+      previous &&
+      (previous.status === "down" || previous.status === "degraded") &&
+      result.status === "up"
+    ) {
       const ok = await sendTelegramMessage(
         [
-          `🟢 UP again: ${name}`,
+          `🟢 OK again: ${name}`,
           `url: ${result.url}`,
+          summary,
           `http: ${result.httpStatus}`,
           `latency: ${result.latencyMs ?? "?"}ms`,
           `at: ${result.checkedAt}`,

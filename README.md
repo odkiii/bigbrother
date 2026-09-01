@@ -1,137 +1,78 @@
 # Big Brother
 
-Лёгкий монитор всех твоих сайтов + Telegram-бот. Крутится на **Vercel Hobby** без Pro Log Drains и без частого Vercel Cron.
+Тотальный контроль сайтов на **Vercel Hobby** + Telegram. Не только «сайт открывается», а scrape углов, форм, ассетов (слабый интернет), API и БД.
 
-## Что умеет
+## Слои проверки
 
-1. **Health-check** каждые ~5 минут (внешний free-cron → `/api/check`) — сайт жив / упал / ожил  
-2. **Приём ошибок** с сайтов (`POST /api/report`) — runtime JS / сервер → Telegram за секунды (дедуп 5 мин)  
-3. **Telegram-бот**: `/status`, `/check`, `/errors`, `/mute`, …  
-4. Минимальная веб-страница со статусами (опционально)
+1. **HTTP** — жив ли URL  
+2. **HTML scrape (cheerio)** — селекторы/тексты + сигнатуры PHP/Next/SQL ошибок в HTML  
+3. **Assets** — CSS/JS/img: 404 и бюджеты размера/времени (эвристика слабого интернета)  
+4. **Crawl** — обход внутренних ссылок, поиск мёртвых углов  
+5. **Forms** — форма на месте / action жив / реальный POST + ловля DB errors в ответе  
+6. **API probes** — синтетические запросы к твоим endpoint’ам  
+7. **DB probes** — MySQL / Postgres / HTTP health (секреты в env Big Brother)  
+8. **SDK push** — runtime ошибки и failed fetch с самих сайтов → Telegram сразу  
 
-### Сайты из коробки
+Конфиги: [`probes/`](probes/) — см. [`probes/README.md`](probes/README.md).
 
-| siteId | URL | Хостинг |
-|--------|-----|---------|
-| `zvezda-na-elku` | https://звезда-на-елку.рф | Onreza |
-| `doctor-ekazheva` | https://doctor-ekazheva.ru | Onreza |
-| `kateramika` | https://kateramika.ru | — |
-| `deal-poizon-delivery` | https://deal-poizon-delivery.vercel.app | Vercel |
+## Сайты
 
-Добавить ещё: правка `src/lib/sites.ts` или env `SITES_JSON`.
-
-## Почему так (дешево и без лимитов Hobby)
-
-- На Hobby **нельзя** читать логи всех проектов в реальном времени  
-- Vercel Cron на Hobby — **раз в сутки** → для 5 минут используем бесплатный [cron-job.org](https://cron-job.org) (или аналог), который дергает `/api/check`  
-- Хранилище: **Upstash Redis free** (~10k команд/день хватает с запасом)  
-- Без отдельного сервера, без Docker
+| siteId | URL |
+|--------|-----|
+| `zvezda-na-elku` | https://звезда-на-елку.рф |
+| `doctor-ekazheva` | https://doctor-ekazheva.ru |
+| `kateramika` | https://kateramika.ru |
+| `deal-poizon-delivery` | https://deal-poizon-delivery.vercel.app |
 
 ## Быстрый старт
 
-### 1. Upstash Redis (2 минуты)
+1. Upstash Redis + Telegram bot (как раньше) — env из [`.env.example`](.env.example)  
+2. Задеплой на Vercel  
+3. Webhook бота → `/api/telegram?secret=...`  
+4. **cron-job.org каждые 5 мин:**  
+   `GET https://YOUR-APP.vercel.app/api/check?mode=deep`  
+   Header: `Authorization: Bearer CRON_SECRET`  
+5. Положи в Vercel env строки БД (`DOCTOR_DATABASE_URL`, …) — проверки включатся сами  
+6. Допиши формы/селекторы/API в `probes/<siteId>.json` и задеплой снова  
+7. SDK на сайты — [`sdk/README.md`](sdk/README.md)
 
-1. https://console.upstash.com → Create Database → Regional  
-2. Скопируй `UPSTASH_REDIS_REST_URL` и `UPSTASH_REDIS_REST_TOKEN`
-
-### 2. Telegram-бот
-
-1. @BotFather → `/newbot` → получи `TELEGRAM_BOT_TOKEN`  
-2. Напиши боту `/start`, затем `/chatid` (после деплоя) **или** временно узнай chat id через `@userinfobot`  
-3. Поставь `TELEGRAM_CHAT_ID`  
-4. (Рекомендуется) `TELEGRAM_ALLOW_USER_IDS=твой_user_id`
-
-### 3. Секреты
-
-Сгенерируй длинные строки:
-
-```bash
-openssl rand -hex 32   # CRON_SECRET
-openssl rand -hex 32   # REPORT_SECRET
-openssl rand -hex 16   # TELEGRAM_WEBHOOK_SECRET
-```
-
-### 4. Деплой на Vercel
-
-```bash
-npm i
-vercel
-```
-
-Env vars в Vercel Project Settings:
-
-```
-TELEGRAM_BOT_TOKEN
-TELEGRAM_CHAT_ID
-TELEGRAM_ALLOW_USER_IDS
-TELEGRAM_WEBHOOK_SECRET
-CRON_SECRET
-REPORT_SECRET
-UPSTASH_REDIS_REST_URL
-UPSTASH_REDIS_REST_TOKEN
-```
-
-### 5. Webhook Telegram
-
-После деплоя (подставь свой домен и secret):
-
-```bash
-curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook?url=https://YOUR-APP.vercel.app/api/telegram?secret=TELEGRAM_WEBHOOK_SECRET"
-```
-
-### 6. Cron каждые 5 минут
-
-На [cron-job.org](https://cron-job.org) (free):
-
-- URL: `https://YOUR-APP.vercel.app/api/check`
-- Method: `GET`
-- Header: `Authorization: Bearer <CRON_SECRET>`
-- Schedule: every 5 minutes
-
-Раз в сутки дополнительно сработает нативный Vercel Cron (`vercel.json`) — запасной канал.
-
-### 7. SDK на сайты (чтобы ловить runtime-ошибки)
-
-См. [sdk/README.md](sdk/README.md). Без SDK Big Brother всё равно пингует URL и пишет в Telegram при дауне.
-
-## Команды бота
+## Telegram
 
 | Команда | Действие |
 |---------|----------|
 | `/status` | Последние статусы |
-| `/check` | Прогнать проверки сейчас |
-| `/errors [n]` | Последние runtime-ошибки |
-| `/sites` | Список siteId |
-| `/mute <siteId> [min]` | Заглушить алерты |
-| `/unmute <siteId>` | Снять mute |
-| `/chatid` | Показать chat/user id |
-| `/help` | Справка |
+| `/check [site]` | Быстрый HTTP |
+| `/deep [site]` | Scrape + forms + API + DB |
+| `/full [site]` | Deep + crawl по ссылкам |
+| `/probes [site]` | Что настроено |
+| `/errors` | История |
+| `/mute` `/unmute` | Тишина |
+
+Статусы: 🟢 up · 🟡 degraded (медленные/тяжёлые ассеты) · 🔴 down/critical probe fail.
+
+## Секреты проектов
+
+Можно отдать Big Brother любые данные — они живут только в **env Vercel этого монитора**:
+
+```
+ZVEZDA_DATABASE_URL=mysql://...
+DOCTOR_DATABASE_URL=mysql://...
+KATERAMIKA_DATABASE_URL=postgres://...
+DEAL_POIZON_DATABASE_URL=postgres://...
+DEAL_POIZON_INTERNAL_SECRET=...
+```
+
+В JSON пиши `"urlEnv": "DOCTOR_DATABASE_URL"` или header `"Authorization": "env:DEAL_POIZON_INTERNAL_SECRET"`.
+
+## Почему не Puppeteer
+
+Полноценный headless Chrome на Hobby дорогой и тяжёлый. Cheerio-scrape + синтетические POST/API/DB + SDK на клиенте дают 90% контроля без Pro-плана. Если позже понадобится реальный браузер — можно добавить Browserless как опциональный слой.
 
 ## API
 
-| Метод | Путь | Auth | Назначение |
-|-------|------|------|------------|
-| GET/POST | `/api/check` | `Bearer CRON_SECRET` | Health sweep + алерты |
-| POST | `/api/report` | `Bearer REPORT_SECRET` | Приём ошибки с сайта |
-| GET | `/api/status` | — | JSON статусов |
-| POST | `/api/telegram` | `?secret=` | Webhook бота |
-
-## Локально
-
-```bash
-cp .env.example .env.local
-# заполни env
-npm run dev
-```
-
-Проверка:
-
-```bash
-curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/check
-```
-
-## Лимиты / антиспам
-
-- Повторный алерт «сайт лежит» — не чаще чем раз в **15 мин** (пока не ожил)  
-- Runtime-ошибка с тем же текстом — дедуп **5 мин**  
-- `/mute` глушит сайт на N минут
+| Путь | Назначение |
+|------|------------|
+| `/api/check?mode=deep\|full\|shallow&site=` | Прогон проб |
+| `/api/report` | Push ошибок с сайтов |
+| `/api/status` | JSON |
+| `/api/telegram` | Бот |

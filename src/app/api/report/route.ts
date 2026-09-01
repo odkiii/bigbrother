@@ -14,7 +14,7 @@ const bodySchema = z.object({
   message: z.string().min(1).max(2000),
   stack: z.string().max(8000).optional(),
   url: z.string().max(500).optional(),
-  source: z.enum(["client", "server", "unknown"]).optional(),
+  source: z.enum(["client", "server", "probe", "unknown"]).optional(),
   meta: z.record(z.string(), z.unknown()).optional(),
 });
 

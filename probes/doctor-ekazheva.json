@@ -1,0 +1,31 @@
+{
+  "siteId": "doctor-ekazheva",
+  "pages": [
+    {
+      "path": "/",
+      "name": "homepage",
+      "scanErrors": true,
+      "checkAssets": true,
+      "maxTtfbMs": 8000,
+      "maxAssetMs": 8000,
+      "assert": [{ "selector": "body" }]
+    }
+  ],
+  "crawl": {
+    "startPath": "/",
+    "maxPages": 8,
+    "sameOrigin": true,
+    "scanErrors": true,
+    "checkAssets": true
+  },
+  "forms": [],
+  "apis": [],
+  "databases": [
+    {
+      "name": "mysql-main",
+      "driver": "mysql",
+      "urlEnv": "DOCTOR_DATABASE_URL",
+      "query": "SELECT 1 AS ok"
+    }
+  ]
+}

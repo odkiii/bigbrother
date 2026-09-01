@@ -13,8 +13,8 @@ export default async function HomePage() {
       <header className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight">Big Brother</h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Health + error hub. Primary UX is Telegram — this page is a quick
-          glance only.
+          Total control: HTTP + scrape + crawl + forms + API + DB. Primary UX
+          is Telegram.
         </p>
       </header>
 
@@ -28,9 +28,11 @@ export default async function HomePage() {
             const color =
               st?.status === "up"
                 ? "bg-emerald-500"
-                : st?.status === "down"
-                  ? "bg-red-500"
-                  : "bg-zinc-500";
+                : st?.status === "degraded"
+                  ? "bg-amber-400"
+                  : st?.status === "down"
+                    ? "bg-red-500"
+                    : "bg-zinc-500";
             return (
               <li
                 key={site.id}
@@ -55,10 +57,18 @@ export default async function HomePage() {
                   </a>
                   <p className="mt-1 text-xs text-zinc-500">
                     {st
-                      ? `${st.status} · HTTP ${st.httpStatus ?? "—"} · ${st.latencyMs ?? "?"}ms · ${st.checkedAt}`
-                      : "No check yet — call /api/check or /check in Telegram"}
-                    {st?.error ? ` · ${st.error}` : ""}
+                      ? `${st.status} · HTTP ${st.httpStatus ?? "—"} · ${st.latencyMs ?? "?"}ms · fail ${st.probeSummary?.failed ?? "—"}/warn ${st.probeSummary?.warnings ?? "—"} · ${st.checkedAt}`
+                      : "No check yet — /deep in Telegram"}
                   </p>
+                  {st?.findings && st.findings.length > 0 ? (
+                    <ul className="mt-2 space-y-1 font-mono text-[11px] text-zinc-400">
+                      {st.findings.slice(0, 6).map((f, i) => (
+                        <li key={`${f.name}-${i}`}>
+                          [{f.kind}/{f.severity}] {f.name}: {f.message}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
               </li>
             );

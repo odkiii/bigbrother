@@ -4,7 +4,7 @@ const DEFAULT_TIMEOUT_MS = 12_000;
 
 export async function checkSite(
   site: SiteConfig,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
+  timeoutMs = 18_000,
 ): Promise<SiteCheckResult> {
   const path = site.healthPath ?? "/";
   const url = new URL(path, site.url).toString();

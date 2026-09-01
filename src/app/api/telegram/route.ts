@@ -6,6 +6,8 @@ import {
   muteSite,
   unmuteSite,
 } from "@/lib/redis";
+import { getProbeConfig } from "@/lib/probes/load";
+import { describeProbeConfig } from "@/lib/probes/runner";
 import { getSites } from "@/lib/sites";
 import {
   sendTelegramMessage,
@@ -63,17 +65,47 @@ export async function POST(request: Request) {
       case "/sites":
         await sendTelegramMessage(formatSites(), chatId);
         break;
+      case "/probes": {
+        const siteId = args[0];
+        await sendTelegramMessage(formatProbes(siteId), chatId);
+        break;
+      }
       case "/errors": {
         const n = Math.min(Number(args[0]) || 10, 30);
         await sendTelegramMessage(await formatErrors(n), chatId);
         break;
       }
-      case "/check": {
-        await sendTelegramMessage("Running health check…", chatId);
-        const { results, alertsSent } = await runHealthSweep(getSites());
+      case "/check":
+      case "/deep":
+      case "/full": {
+        const mode =
+          command === "/full"
+            ? "full"
+            : command === "/check"
+              ? "shallow"
+              : "deep";
+        const siteFilter = args[0];
+        let sites = getSites();
+        if (siteFilter) {
+          sites = sites.filter((s) => s.id === siteFilter);
+          if (sites.length === 0) {
+            await sendTelegramMessage(`Unknown siteId: ${siteFilter}`, chatId);
+            break;
+          }
+        }
+        await sendTelegramMessage(
+          `Running ${mode} probes${siteFilter ? ` for ${siteFilter}` : ""}…`,
+          chatId,
+        );
+        const { results, alertsSent } = await runHealthSweep(sites, { mode });
         const lines = results.map((r) => {
-          const icon = r.status === "up" ? "🟢" : "🔴";
-          return `${icon} ${r.siteId}: ${r.status} ${r.httpStatus ?? ""} ${r.error ?? ""} ${r.latencyMs ?? "?"}ms`.trim();
+          const icon =
+            r.status === "up" ? "🟢" : r.status === "degraded" ? "🟡" : "🔴";
+          const sum = r.probeSummary
+            ? `p${r.probeSummary.total}/f${r.probeSummary.failed}/w${r.probeSummary.warnings}`
+            : "";
+          const err = r.error ? `\n  ${r.error.slice(0, 180)}` : "";
+          return `${icon} ${r.siteId}: ${r.status} ${sum} ${r.latencyMs ?? "?"}ms${err}`;
         });
         lines.push(`alertsSent: ${alertsSent}`);
         await sendTelegramMessage(lines.join("\n"), chatId);
@@ -128,15 +160,18 @@ export async function POST(request: Request) {
 
 function helpText(): string {
   return [
-    "Big Brother — monitoring bot",
+    "Big Brother — total control",
     "",
-    "/status — last known statuses",
-    "/check — run health checks now",
-    "/errors [n] — recent runtime errors",
-    "/sites — monitored sites",
-    "/mute <siteId> [min] — mute alerts",
+    "/status — last statuses",
+    "/check [siteId] — fast HTTP ping",
+    "/deep [siteId] — scrape + forms + API + DB",
+    "/full [siteId] — deep + crawl corners of site",
+    "/probes [siteId] — what is configured",
+    "/errors [n] — recent errors",
+    "/sites — list",
+    "/mute <siteId> [min]",
     "/unmute <siteId>",
-    "/chatid — show chat/user ids for .env",
+    "/chatid",
     "/help",
   ].join("\n");
 }
@@ -147,14 +182,31 @@ function formatSites(): string {
     .join("\n\n");
 }
 
+function formatProbes(siteId?: string): string {
+  const sites = siteId
+    ? getSites().filter((s) => s.id === siteId)
+    : getSites();
+  if (sites.length === 0) return `Unknown site: ${siteId}`;
+  return sites
+    .map((s) => {
+      const cfg = getProbeConfig(s.id);
+      return `• ${s.id}\n  ${describeProbeConfig(cfg)}`;
+    })
+    .join("\n\n");
+}
+
 async function formatStatus(): Promise<string> {
   const sites = getSites();
   const statuses = await getAllSiteStatuses(sites.map((s) => s.id));
   const lines = sites.map((s) => {
     const st = statuses[s.id];
     if (!st) return `⚪ ${s.name}: unknown (no check yet)`;
-    const icon = st.status === "up" ? "🟢" : "🔴";
-    return `${icon} ${s.name}: ${st.status} · HTTP ${st.httpStatus ?? "—"} · ${st.latencyMs ?? "?"}ms · ${st.checkedAt}`;
+    const icon =
+      st.status === "up" ? "🟢" : st.status === "degraded" ? "🟡" : "🔴";
+    const sum = st.probeSummary
+      ? ` · fail ${st.probeSummary.failed}/warn ${st.probeSummary.warnings}`
+      : "";
+    return `${icon} ${s.name}: ${st.status}${sum} · ${st.latencyMs ?? "?"}ms · ${st.checkedAt}`;
   });
   return lines.join("\n");
 }

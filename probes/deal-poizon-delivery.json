@@ -1,0 +1,31 @@
+{
+  "siteId": "deal-poizon-delivery",
+  "pages": [
+    {
+      "path": "/",
+      "name": "homepage",
+      "scanErrors": true,
+      "checkAssets": true,
+      "maxTtfbMs": 6000,
+      "maxAssetMs": 6000,
+      "assert": [{ "selector": "body" }]
+    }
+  ],
+  "crawl": {
+    "startPath": "/",
+    "maxPages": 6,
+    "sameOrigin": true,
+    "scanErrors": true,
+    "checkAssets": true
+  },
+  "forms": [],
+  "apis": [],
+  "databases": [
+    {
+      "name": "postgres-main",
+      "driver": "postgres",
+      "urlEnv": "DEAL_POIZON_DATABASE_URL",
+      "query": "SELECT 1 AS ok"
+    }
+  ]
+}
