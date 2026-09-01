@@ -1,0 +1,92 @@
+import { getAllSiteStatuses, listErrors } from "@/lib/redis";
+import { getSites } from "@/lib/sites";
+
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  const sites = getSites();
+  const statuses = await getAllSiteStatuses(sites.map((s) => s.id));
+  const errors = await listErrors(15);
+
+  return (
+    <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
+      <header className="mb-8">
+        <h1 className="text-2xl font-semibold tracking-tight">Big Brother</h1>
+        <p className="mt-1 text-sm text-zinc-400">
+          Health + error hub. Primary UX is Telegram — this page is a quick
+          glance only.
+        </p>
+      </header>
+
+      <section className="mb-10">
+        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-500">
+          Sites
+        </h2>
+        <ul className="space-y-2">
+          {sites.map((site) => {
+            const st = statuses[site.id];
+            const color =
+              st?.status === "up"
+                ? "bg-emerald-500"
+                : st?.status === "down"
+                  ? "bg-red-500"
+                  : "bg-zinc-500";
+            return (
+              <li
+                key={site.id}
+                className="flex items-start gap-3 border-b border-zinc-800 py-3"
+              >
+                <span
+                  className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${color}`}
+                  aria-hidden
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-medium">{site.name}</span>
+                    <span className="text-xs text-zinc-500">{site.id}</span>
+                  </div>
+                  <a
+                    href={site.url}
+                    className="break-all text-sm text-zinc-400 underline-offset-2 hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {site.url}
+                  </a>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {st
+                      ? `${st.status} · HTTP ${st.httpStatus ?? "—"} · ${st.latencyMs ?? "?"}ms · ${st.checkedAt}`
+                      : "No check yet — call /api/check or /check in Telegram"}
+                    {st?.error ? ` · ${st.error}` : ""}
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-500">
+          Recent errors
+        </h2>
+        {errors.length === 0 ? (
+          <p className="text-sm text-zinc-500">No stored errors.</p>
+        ) : (
+          <ul className="space-y-3">
+            {errors.map((e) => (
+              <li key={e.id} className="border-b border-zinc-800 pb-3 text-sm">
+                <div className="text-zinc-400">
+                  [{e.siteId}] {e.source} · {e.receivedAt}
+                </div>
+                <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs text-zinc-200">
+                  {e.message}
+                </pre>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </main>
+  );
+}
