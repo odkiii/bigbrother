@@ -1,0 +1,31 @@
+{
+  "siteId": "kateramika",
+  "pages": [
+    {
+      "path": "/",
+      "name": "homepage",
+      "scanErrors": true,
+      "checkAssets": true,
+      "maxTtfbMs": 8000,
+      "maxAssetMs": 8000,
+      "assert": [{ "selector": "body" }]
+    }
+  ],
+  "crawl": {
+    "startPath": "/",
+    "maxPages": 8,
+    "sameOrigin": true,
+    "scanErrors": true,
+    "checkAssets": true
+  },
+  "forms": [],
+  "apis": [],
+  "databases": [
+    {
+      "name": "db-main",
+      "driver": "postgres",
+      "urlEnv": "KATERAMIKA_DATABASE_URL",
+      "query": "SELECT 1 AS ok"
+    }
+  ]
+}

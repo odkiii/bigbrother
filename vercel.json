@@ -1,0 +1,9 @@
+{
+  "crons": [
+    {
+      "path": "/api/check?mode=deep",
+      "schedule": "0 9 * * *"
+    }
+  ]
+}
+

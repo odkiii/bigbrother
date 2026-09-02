@@ -1,0 +1,34 @@
+{
+  "siteId": "zvezda-na-elku",
+  "pages": [
+    {
+      "path": "/",
+      "name": "homepage",
+      "scanErrors": true,
+      "checkAssets": true,
+      "maxTtfbMs": 8000,
+      "maxHtmlBytes": 2500000,
+      "maxAssetMs": 8000,
+      "maxAssetBytes": 1500000,
+      "assert": [{ "selector": "body" }]
+    }
+  ],
+  "crawl": {
+    "startPath": "/",
+    "maxPages": 8,
+    "sameOrigin": true,
+    "scanErrors": true,
+    "checkAssets": true,
+    "maxAssetMs": 8000
+  },
+  "forms": [],
+  "apis": [],
+  "databases": [
+    {
+      "name": "mysql-main",
+      "driver": "mysql",
+      "urlEnv": "ZVEZDA_DATABASE_URL",
+      "query": "SELECT 1 AS ok"
+    }
+  ]
+}
