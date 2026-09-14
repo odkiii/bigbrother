@@ -71,5 +71,6 @@ window.addEventListener("error", (e) => {
 | doctor-ekazheva.ru | `doctor-ekazheva` |
 | kateramika.ru | `kateramika` |
 | deal-poizon-delivery.vercel.app | `deal-poizon-delivery` |
+| droptext.site | `droptext` |
 
 Для Onreza (PHP/статик) — тот же JS-сниппет в `<script>`, прокси не обязателен, если готов принять риск публичного report endpoint с rate-limit (лучше короткий secret + CORS restrict).
