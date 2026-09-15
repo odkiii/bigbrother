@@ -13,7 +13,7 @@ export const DEFAULT_SITES: SiteConfig[] = [
   },
   {
     id: "doctor-ekazheva",
-    name: "Doctor Ekazheva",
+    name: "Фатима Экажева",
     url: "https://doctor-ekazheva.ru",
     host: "onreza",
   },
