@@ -105,6 +105,30 @@ export async function setTelegramOffset(offset: number): Promise<void> {
   await r.set(TG_OFFSET_KEY, offset);
 }
 
+const CRON_LAST_KEY = "bb:cron:last";
+
+export type CronLastRun = {
+  at: string;
+  mode: string;
+  source: string;
+  checked: number;
+  alertsSent: number;
+  down: number;
+  degraded: number;
+};
+
+export async function saveCronLastRun(run: CronLastRun): Promise<void> {
+  const r = getRedis();
+  if (!r) return;
+  await r.set(CRON_LAST_KEY, run);
+}
+
+export async function getCronLastRun(): Promise<CronLastRun | null> {
+  const r = getRedis();
+  if (!r) return null;
+  return (await r.get<CronLastRun>(CRON_LAST_KEY)) ?? null;
+}
+
 /**
  * Returns true if this key was newly set (not a duplicate within TTL).
  */
