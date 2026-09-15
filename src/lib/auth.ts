@@ -1,11 +1,10 @@
 import { timingSafeEqual } from "crypto";
 
-export function requireSecret(
+export function secretsEqual(
   provided: string | null | undefined,
-  expected: string | undefined,
+  expected: string | null | undefined,
 ): boolean {
-  if (!expected) return false;
-  if (!provided) return false;
+  if (!provided || !expected) return false;
   const a = Buffer.from(provided);
   const b = Buffer.from(expected);
   if (a.length !== b.length) return false;
@@ -14,6 +13,14 @@ export function requireSecret(
   } catch {
     return false;
   }
+}
+
+export function requireSecret(
+  provided: string | null | undefined,
+  expected: string | undefined,
+): boolean {
+  if (!expected) return false;
+  return secretsEqual(provided, expected);
 }
 
 export function getBearerOrQuerySecret(

@@ -1,16 +1,11 @@
-import { runHealthSweep } from "@/lib/alerts";
-import { isAllowedTelegramUser } from "@/lib/auth";
+import { getBearerOrQuerySecret, requireSecret, secretsEqual } from "@/lib/auth";
+import { handleTelegramUpdate } from "@/lib/telegram-commands";
 import {
-  getAllSiteStatuses,
-  listErrors,
-  muteSite,
-  unmuteSite,
-} from "@/lib/redis";
-import { getProbeConfig } from "@/lib/probes/load";
-import { describeProbeConfig } from "@/lib/probes/runner";
-import { getSites } from "@/lib/sites";
-import {
-  sendTelegramMessage,
+  ensureTelegramWebhook,
+  getTelegramConfig,
+  getWebhookInfo,
+  probePublicTelegramRoute,
+  telegramWebhookDisplayUrl,
   type TelegramUpdate,
 } from "@/lib/telegram";
 import { NextResponse } from "next/server";
@@ -18,15 +13,60 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-/**
- * Telegram bot webhook. Set webhook to:
- * https://<your-domain>/api/telegram?secret=<TELEGRAM_WEBHOOK_SECRET>
- */
-export async function POST(request: Request) {
-  const url = new URL(request.url);
-  const secret = url.searchParams.get("secret");
+function isTelegramWebhookAuthorized(request: Request): boolean {
   const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (expected && secret !== expected) {
+  if (!expected) return true;
+  const url = new URL(request.url);
+  const query = url.searchParams.get("secret");
+  const header = request.headers.get("x-telegram-bot-api-secret-token");
+  return secretsEqual(query, expected) || secretsEqual(header, expected);
+}
+
+function isOpsAuthorized(request: Request): boolean {
+  const provided = getBearerOrQuerySecret(request);
+  return (
+    requireSecret(provided, process.env.CRON_SECRET) ||
+    requireSecret(provided, process.env.TELEGRAM_WEBHOOK_SECRET)
+  );
+}
+
+/**
+ * Telegram bot webhook.
+ * Telegram native secret: header x-telegram-bot-api-secret-token
+ * Optional query: ?secret=TELEGRAM_WEBHOOK_SECRET
+ *
+ * GET with CRON_SECRET or TELEGRAM_WEBHOOK_SECRET → diagnostics + auto-register.
+ */
+export async function GET(request: Request) {
+  if (!isOpsAuthorized(request)) {
+    return NextResponse.json(
+      { ok: true, service: "telegram-webhook", auth: "POST from Telegram" },
+      { status: 200 },
+    );
+  }
+
+  const { token, chatId } = getTelegramConfig();
+  const probe = await probePublicTelegramRoute();
+  const webhook = token ? await getWebhookInfo() : null;
+  const ensured = token ? await ensureTelegramWebhook() : null;
+  const currentUrl = webhook?.result?.url ?? "";
+
+  return NextResponse.json({
+    ok: Boolean(token) && probe.reachable && ensured?.ok !== false,
+    hasToken: Boolean(token),
+    hasChatId: Boolean(chatId),
+    publicUrl: telegramWebhookDisplayUrl(),
+    webhookHost: hostOnly(currentUrl),
+    lastError: webhook?.result?.last_error_message ?? null,
+    pendingUpdates: webhook?.result?.pending_update_count ?? null,
+    probe,
+    ensure: ensured,
+    hint: hintFrom(probe, Boolean(token)),
+  });
+}
+
+export async function POST(request: Request) {
+  if (!isTelegramWebhookAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -37,187 +77,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const message = update.message;
-  if (!message?.text || !message.chat) {
-    return NextResponse.json({ ok: true });
-  }
-
-  const userId = message.from?.id;
-  if (!isAllowedTelegramUser(userId)) {
-    await sendTelegramMessage("Access denied.", String(message.chat.id));
-    return NextResponse.json({ ok: true });
-  }
-
-  const chatId = String(message.chat.id);
-  const text = message.text.trim();
-  const [cmd, ...args] = text.split(/\s+/);
-  const command = (cmd || "").split("@")[0].toLowerCase();
-
-  try {
-    switch (command) {
-      case "/start":
-      case "/help":
-        await sendTelegramMessage(helpText(), chatId);
-        break;
-      case "/status":
-        await sendTelegramMessage(await formatStatus(), chatId);
-        break;
-      case "/sites":
-        await sendTelegramMessage(formatSites(), chatId);
-        break;
-      case "/probes": {
-        const siteId = args[0];
-        await sendTelegramMessage(formatProbes(siteId), chatId);
-        break;
-      }
-      case "/errors": {
-        const n = Math.min(Number(args[0]) || 10, 30);
-        await sendTelegramMessage(await formatErrors(n), chatId);
-        break;
-      }
-      case "/check":
-      case "/deep":
-      case "/full": {
-        const mode =
-          command === "/full"
-            ? "full"
-            : command === "/check"
-              ? "shallow"
-              : "deep";
-        const siteFilter = args[0];
-        let sites = getSites();
-        if (siteFilter) {
-          sites = sites.filter((s) => s.id === siteFilter);
-          if (sites.length === 0) {
-            await sendTelegramMessage(`Unknown siteId: ${siteFilter}`, chatId);
-            break;
-          }
-        }
-        await sendTelegramMessage(
-          `Running ${mode} probes${siteFilter ? ` for ${siteFilter}` : ""}…`,
-          chatId,
-        );
-        const { results, alertsSent } = await runHealthSweep(sites, { mode });
-        const lines = results.map((r) => {
-          const icon =
-            r.status === "up" ? "🟢" : r.status === "degraded" ? "🟡" : "🔴";
-          const sum = r.probeSummary
-            ? `p${r.probeSummary.total}/f${r.probeSummary.failed}/w${r.probeSummary.warnings}`
-            : "";
-          const err = r.error ? `\n  ${r.error.slice(0, 180)}` : "";
-          return `${icon} ${r.siteId}: ${r.status} ${sum} ${r.latencyMs ?? "?"}ms${err}`;
-        });
-        lines.push(`alertsSent: ${alertsSent}`);
-        await sendTelegramMessage(lines.join("\n"), chatId);
-        break;
-      }
-      case "/mute": {
-        const siteId = args[0];
-        const minutes = Number(args[1]) || 60;
-        if (!siteId) {
-          await sendTelegramMessage("Usage: /mute <siteId> [minutes]", chatId);
-          break;
-        }
-        await muteSite(siteId, minutes);
-        await sendTelegramMessage(
-          `Muted ${siteId} for ${minutes} minutes.`,
-          chatId,
-        );
-        break;
-      }
-      case "/unmute": {
-        const siteId = args[0];
-        if (!siteId) {
-          await sendTelegramMessage("Usage: /unmute <siteId>", chatId);
-          break;
-        }
-        await unmuteSite(siteId);
-        await sendTelegramMessage(`Unmuted ${siteId}.`, chatId);
-        break;
-      }
-      case "/chatid":
-        await sendTelegramMessage(
-          `Your chat id: ${chatId}\nYour user id: ${userId ?? "?"}`,
-          chatId,
-        );
-        break;
-      default:
-        await sendTelegramMessage(
-          `Unknown command. Try /help\n\nGot: ${text}`,
-          chatId,
-        );
-    }
-  } catch (err) {
-    console.error("[telegram]", err);
-    await sendTelegramMessage(
-      `Bot error: ${err instanceof Error ? err.message : String(err)}`,
-      chatId,
-    );
-  }
-
+  await handleTelegramUpdate(update);
   return NextResponse.json({ ok: true });
 }
 
-function helpText(): string {
-  return [
-    "Big Brother — total control",
-    "",
-    "/status — last statuses",
-    "/check [siteId] — fast HTTP ping",
-    "/deep [siteId] — scrape + forms + API + DB",
-    "/full [siteId] — deep + crawl corners of site",
-    "/probes [siteId] — what is configured",
-    "/errors [n] — recent errors",
-    "/sites — list",
-    "/mute <siteId> [min]",
-    "/unmute <siteId>",
-    "/chatid",
-    "/help",
-  ].join("\n");
+function hostOnly(url: string): string | null {
+  try {
+    return url ? new URL(url).host : null;
+  } catch {
+    return null;
+  }
 }
 
-function formatSites(): string {
-  return getSites()
-    .map((s) => `• ${s.id} — ${s.name}\n  ${s.url} (${s.host})`)
-    .join("\n\n");
-}
-
-function formatProbes(siteId?: string): string {
-  const sites = siteId
-    ? getSites().filter((s) => s.id === siteId)
-    : getSites();
-  if (sites.length === 0) return `Unknown site: ${siteId}`;
-  return sites
-    .map((s) => {
-      const cfg = getProbeConfig(s.id);
-      return `• ${s.id}\n  ${describeProbeConfig(cfg)}`;
-    })
-    .join("\n\n");
-}
-
-async function formatStatus(): Promise<string> {
-  const sites = getSites();
-  const statuses = await getAllSiteStatuses(sites.map((s) => s.id));
-  const lines = sites.map((s) => {
-    const st = statuses[s.id];
-    if (!st) return `⚪ ${s.name}: unknown (no check yet)`;
-    const icon =
-      st.status === "up" ? "🟢" : st.status === "degraded" ? "🟡" : "🔴";
-    const sum = st.probeSummary
-      ? ` · fail ${st.probeSummary.failed}/warn ${st.probeSummary.warnings}`
-      : "";
-    return `${icon} ${s.name}: ${st.status}${sum} · ${st.latencyMs ?? "?"}ms · ${st.checkedAt}`;
-  });
-  return lines.join("\n");
-}
-
-async function formatErrors(n: number): Promise<string> {
-  const errors = await listErrors(n);
-  if (errors.length === 0) return "No stored errors yet.";
-  return errors
-    .map(
-      (e) =>
-        `• [${e.siteId}] ${e.source} @ ${e.receivedAt}\n  ${e.message.slice(0, 200)}`,
-    )
-    .join("\n\n");
+function hintFrom(
+  probe: Awaited<ReturnType<typeof probePublicTelegramRoute>>,
+  hasToken: boolean,
+): string {
+  if (!hasToken) return "Set TELEGRAM_BOT_TOKEN in Vercel env, then GET this URL with ?secret=CRON_SECRET";
+  if (probe.deploymentMissing)
+    return "Production alias is dead (DEPLOYMENT_NOT_FOUND). Set BIGBROTHER_PUBLIC_URL to a live domain and assign it in Vercel.";
+  if (probe.protection)
+    return "Vercel Deployment Protection is blocking Telegram. Disable SSO on Production, or enable Protection Bypass for Automation (VERCEL_AUTOMATION_BYPASS_SECRET).";
+  if (!probe.reachable)
+    return "Webhook URL is not reachable. Set BIGBROTHER_PUBLIC_URL and re-register via GET /api/telegram?secret=CRON_SECRET";
+  return "Webhook path looks reachable. Send /start to the bot.";
 }

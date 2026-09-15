@@ -89,6 +89,22 @@ export async function unmuteSite(siteId: string): Promise<void> {
   await r.del(`${MUTE_PREFIX}${siteId}`);
 }
 
+const TG_OFFSET_KEY = "bb:tg:offset";
+
+export async function getTelegramOffset(): Promise<number> {
+  const r = getRedis();
+  if (!r) return 0;
+  const v = await r.get<number | string>(TG_OFFSET_KEY);
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+export async function setTelegramOffset(offset: number): Promise<void> {
+  const r = getRedis();
+  if (!r) return;
+  await r.set(TG_OFFSET_KEY, offset);
+}
+
 /**
  * Returns true if this key was newly set (not a duplicate within TTL).
  */
