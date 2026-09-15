@@ -6,9 +6,10 @@ import {
   getWebhookInfo,
   probePublicTelegramRoute,
   telegramWebhookDisplayUrl,
+  webhookMissingCallbackQuery,
   type TelegramUpdate,
 } from "@/lib/telegram";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -66,6 +67,7 @@ export async function GET(request: Request) {
   const ensured = token ? await ensureTelegramWebhook({ force }) : null;
   const webhookAfter = token ? await getWebhookInfo() : null;
   const currentUrl = webhookAfter?.result?.url ?? "";
+  const allowed = webhookAfter?.result?.allowed_updates ?? [];
 
   return NextResponse.json({
     ok: Boolean(token) && ensured?.ok !== false,
@@ -75,6 +77,8 @@ export async function GET(request: Request) {
     publicUrl: telegramWebhookDisplayUrl(),
     webhookUrlHost: hostOnly(currentUrl),
     webhookUrlSet: Boolean(currentUrl),
+    allowedUpdates: allowed,
+    callbackQueryEnabled: !webhookMissingCallbackQuery(allowed),
     lastError: webhookAfter?.result?.last_error_message ?? null,
     pendingUpdates: webhookAfter?.result?.pending_update_count ?? null,
     webhookBefore: webhookBefore?.result?.url
@@ -84,7 +88,9 @@ export async function GET(request: Request) {
     ensure: ensured,
     nextStep:
       ensured?.ok && currentUrl
-        ? "Напиши боту: /start — меню с кнопками, /help — описание. Эскалации 1/3/6/12ч идут в TELEGRAM_CHAT_ID."
+        ? webhookMissingCallbackQuery(allowed)
+          ? "Webhook без callback_query — открой ещё раз с &force=1"
+          : "Напиши /start и жми кнопки. Если тупили — force=1 уже должен был починить."
         : "Смотри ensure.message / lastError. Проверь TELEGRAM_BOT_TOKEN и BIGBROTHER_PUBLIC_URL.",
     hint: hintFrom(probe, Boolean(token), ensured?.ok === true),
   });
@@ -102,7 +108,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  await handleTelegramUpdate(update);
+  // Ack Telegram immediately. Long /deep probes must not block webhook
+  // (otherwise buttons spin forever and Telegram retries/drops updates).
+  after(async () => {
+    try {
+      await handleTelegramUpdate(update);
+    } catch (err) {
+      console.error("[telegram] update failed", err);
+    }
+  });
+
   return NextResponse.json({ ok: true });
 }
 

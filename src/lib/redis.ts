@@ -94,6 +94,7 @@ export async function unmuteSite(siteId: string): Promise<void> {
 }
 
 const TG_OFFSET_KEY = "bb:tg:offset";
+const TG_WEBHOOK_OK_KEY = "bb:tg:webhook_callbacks_ok";
 
 export async function getTelegramOffset(): Promise<number> {
   const r = getRedis();
@@ -107,6 +108,27 @@ export async function setTelegramOffset(offset: number): Promise<void> {
   const r = getRedis();
   if (!r) return;
   await r.set(TG_OFFSET_KEY, offset);
+}
+
+/** Cache that Telegram webhook accepts callback_query (avoid setWebhook every message). */
+export async function isTelegramWebhookCallbacksOk(): Promise<boolean> {
+  const r = getRedis();
+  if (!r) return false;
+  return Boolean(await r.get(TG_WEBHOOK_OK_KEY));
+}
+
+export async function markTelegramWebhookCallbacksOk(
+  ttlSeconds = 6 * 60 * 60,
+): Promise<void> {
+  const r = getRedis();
+  if (!r) return;
+  await r.set(TG_WEBHOOK_OK_KEY, "1", { ex: ttlSeconds });
+}
+
+export async function clearTelegramWebhookCallbacksOk(): Promise<void> {
+  const r = getRedis();
+  if (!r) return;
+  await r.del(TG_WEBHOOK_OK_KEY);
 }
 
 const CRON_LAST_KEY = "bb:cron:last";

@@ -3,6 +3,7 @@ import { isAllowedTelegramUser } from "@/lib/auth";
 import {
   getAllSiteStatuses,
   getTelegramChatState,
+  isTelegramWebhookCallbacksOk,
   listErrors,
   muteSite,
   setTelegramChatState,
@@ -24,6 +25,7 @@ import {
 } from "@/lib/telegram-format";
 import {
   answerTelegramCallback,
+  ensureTelegramWebhook,
   sendTelegramMessage,
   type TelegramUpdate,
 } from "@/lib/telegram";
@@ -37,6 +39,16 @@ import {
 } from "@/lib/telegram-ui";
 import type { SiteConfig } from "@/lib/types";
 
+/** Upgrade stale webhook (no callback_query) without slowing every request. */
+async function healWebhookForButtons(): Promise<void> {
+  try {
+    if (await isTelegramWebhookCallbacksOk()) return;
+    await ensureTelegramWebhook();
+  } catch (err) {
+    console.warn("[telegram] webhook heal failed", err);
+  }
+}
+
 export async function handleTelegramUpdate(
   update: TelegramUpdate,
 ): Promise<{ handled: boolean }> {
@@ -48,6 +60,9 @@ export async function handleTelegramUpdate(
   if (!message?.text || !message.chat) {
     return { handled: false };
   }
+
+  // Commands work even with stale webhook — use that to enable buttons.
+  await healWebhookForButtons();
 
   const userId = message.from?.id;
   if (!isAllowedTelegramUser(userId)) {
@@ -72,7 +87,7 @@ export async function handleTelegramUpdate(
     switch (command) {
       case "/start":
         await sendTelegramMessage(
-          "👁 Big Brother онлайн.\nВыбери действие кнопкой или смотри /help",
+          "👁 Big Brother онлайн.\nКнопки ниже. Если не реагируют — напиши /start ещё раз через минуту (webhook обновляется).",
           chatId,
           { reply_markup: mainMenuKeyboard() },
         );
@@ -235,7 +250,8 @@ async function handleCallback(
   }
 
   const data = (cq.data ?? "").trim();
-  await answerTelegramCallback(cq.id, "…");
+  // Stop Telegram loading spinner immediately (no toast).
+  await answerTelegramCallback(cq.id);
 
   try {
     if (data === "m") {
