@@ -19,13 +19,36 @@
     "checkAssets": true
   },
   "forms": [],
-  "apis": [],
+  "apis": [
+    {
+      "name": "course-form-api",
+      "path": "/api/submit-course-form",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+        "Origin": "https://doctor-ekazheva.ru",
+        "Referer": "https://doctor-ekazheva.ru/"
+      },
+      "body": {
+        "full_name": "",
+        "phone": "",
+        "course_name": "",
+        "consent": true
+      },
+      "expectStatus": [400],
+      "expectTextIncludes": "success",
+      "severity": "critical",
+      "maxMs": 12000
+    }
+  ],
   "databases": [
     {
       "name": "mysql-main",
       "driver": "mysql",
       "urlEnv": "DOCTOR_DATABASE_URL",
-      "query": "SELECT 1 AS ok"
+      "query": "SELECT 1 AS ok",
+      "severity": "warning"
     }
   ]
 }
