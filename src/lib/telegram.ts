@@ -148,10 +148,15 @@ export async function answerTelegramCallback(
 ): Promise<void> {
   const { token } = getTelegramConfig();
   if (!token) return;
-  await telegramApi("answerCallbackQuery", {
+  const body: Record<string, unknown> = {
     callback_query_id: callbackQueryId,
-    text,
-  });
+  };
+  // Short toast only when we have something useful; empty = stop spinner.
+  if (text) {
+    body.text = text.slice(0, 200);
+    body.show_alert = false;
+  }
+  await telegramApi("answerCallbackQuery", body);
 }
 
 export async function getWebhookInfo(): Promise<{
@@ -163,9 +168,25 @@ export async function getWebhookInfo(): Promise<{
     last_error_date?: number;
     pending_update_count?: number;
     has_custom_certificate?: boolean;
+    allowed_updates?: string[];
   };
 }> {
   return telegramApi("getWebhookInfo");
+}
+
+/** Updates we must receive for bot UX (commands + inline buttons). */
+export const TELEGRAM_ALLOWED_UPDATES = [
+  "message",
+  "edited_message",
+  "callback_query",
+] as const;
+
+export function webhookMissingCallbackQuery(
+  allowedUpdates: string[] | undefined,
+): boolean {
+  // Telegram: empty / omitted allowed_updates means "all types" → OK.
+  if (!allowedUpdates || allowedUpdates.length === 0) return false;
+  return !allowedUpdates.includes("callback_query");
 }
 
 export async function setTelegramWebhook(): Promise<{
@@ -186,8 +207,8 @@ export async function setTelegramWebhook(): Promise<{
   const secret_token = telegramSecretToken();
   const body: Record<string, unknown> = {
     url,
-    drop_pending_updates: true,
-    allowed_updates: ["message", "edited_message", "callback_query"],
+    drop_pending_updates: false,
+    allowed_updates: [...TELEGRAM_ALLOWED_UPDATES],
   };
   if (secret_token) body.secret_token = secret_token;
 
@@ -278,18 +299,29 @@ export async function ensureTelegramWebhook(options?: {
   const sameHost = Boolean(desiredHost && currentHost && desiredHost === currentHost);
   const lastError = info.result?.last_error_message;
   const pending = info.result?.pending_update_count;
+  const missingCallbacks = webhookMissingCallbackQuery(
+    info.result?.allowed_updates,
+  );
 
-  if (sameHost && !lastError && !force) {
+  // Stale webhooks registered before inline buttons omit callback_query —
+  // buttons appear but clicks never reach the bot.
+  if (sameHost && !lastError && !force && !missingCallbacks) {
     try {
       const { BOT_COMMANDS } = await import("@/lib/telegram-ui");
       await setTelegramBotCommands(BOT_COMMANDS);
     } catch {
       /* ignore */
     }
+    try {
+      const { markTelegramWebhookCallbacksOk } = await import("@/lib/redis");
+      await markTelegramWebhookCallbacksOk();
+    } catch {
+      /* ignore */
+    }
     return {
       ok: true,
       action: "already",
-      message: `Webhook already on ${display}`,
+      message: `Webhook already on ${display} (callback_query OK)`,
       pending,
     };
   }
@@ -312,10 +344,19 @@ export async function ensureTelegramWebhook(options?: {
     console.warn("[bigbrother] setMyCommands failed", err);
   }
 
+  try {
+    const { markTelegramWebhookCallbacksOk } = await import("@/lib/redis");
+    await markTelegramWebhookCallbacksOk();
+  } catch {
+    /* ignore */
+  }
+
   return {
     ok: true,
     action: "set",
-    message: `Webhook registered: ${display}`,
+    message: missingCallbacks
+      ? `Webhook upgraded (added callback_query): ${display}`
+      : `Webhook registered: ${display}`,
     lastError,
     pending,
   };
