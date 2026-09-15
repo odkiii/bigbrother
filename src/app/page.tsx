@@ -5,8 +5,17 @@ export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const sites = getSites();
-  const statuses = await getAllSiteStatuses(sites.map((s) => s.id));
-  const errors = await listErrors(15);
+  let statuses: Awaited<ReturnType<typeof getAllSiteStatuses>> = {};
+  let errors: Awaited<ReturnType<typeof listErrors>> = [];
+  let storeError: string | null = null;
+
+  try {
+    statuses = await getAllSiteStatuses(sites.map((s) => s.id));
+    errors = await listErrors(15);
+  } catch (err) {
+    storeError = err instanceof Error ? err.message : String(err);
+    console.error("[bigbrother] homepage redis failed", err);
+  }
 
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">
@@ -16,7 +25,24 @@ export default async function HomePage() {
           Total control: HTTP + scrape + crawl + forms + API + DB. Primary UX
           is Telegram.
         </p>
+        <p className="mt-2 font-mono text-[11px] text-zinc-600">
+          live · {new Date().toISOString()} ·{" "}
+          <a className="underline" href="/api/ping">
+            /api/ping
+          </a>{" "}
+          ·{" "}
+          <a className="underline" href="/ok.txt">
+            /ok.txt
+          </a>
+        </p>
       </header>
+
+      {storeError ? (
+        <p className="mb-6 rounded border border-amber-800 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+          Redis unavailable: {storeError}. Site list still shown; statuses may
+          be empty. Check UPSTASH_REDIS_REST_* env.
+        </p>
+      ) : null}
 
       <section className="mb-10">
         <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-zinc-500">

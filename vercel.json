@@ -1,9 +1,20 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "regions": ["iad1"],
   "crons": [
     {
       "path": "/api/check?mode=deep",
       "schedule": "0 9 * * *"
     }
+  ],
+  "headers": [
+    {
+      "source": "/ok.txt",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "X-BigBrother", "value": "static-ok" }
+      ]
+    }
   ]
 }
-
