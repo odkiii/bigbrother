@@ -50,6 +50,25 @@
 
 Статусы: 🟢 up · 🟡 degraded (медленные/тяжёлые ассеты) · 🔴 down/critical probe fail.
 
+### Если бот молчит
+
+Проверено по живому деплою: GitHub homepage `https://bigbrother-phi.vercel.app` сейчас отдаёт Vercel `DEPLOYMENT_NOT_FOUND`. Живые `*.vercel.app` URL проекта закрыты **Vercel Deployment Protection (SSO)** — `POST /api/telegram` возвращает `401 Protected deployment`. Telegram не умеет ходить через Vercel login, поэтому webhook не доходит.
+
+Что сделать в Vercel (Production):
+
+1. Повесить рабочий Production Domain (не мёртвый alias) и прописать его в `BIGBROTHER_PUBLIC_URL`.
+2. Либо выключить Deployment Protection для Production, либо включить **Protection Bypass for Automation** (появится `VERCEL_AUTOMATION_BYPASS_SECRET`). Код сам добавит `?x-vercel-protection-bypass=` в URL вебхука.
+3. Env: `TELEGRAM_BOT_TOKEN` обязательно; `TELEGRAM_CHAT_ID` для алертов; `TELEGRAM_WEBHOOK_SECRET` только из `A-Za-z0-9_-`.
+4. После деплоя зарегистрировать вебхук (тот же секрет, что `CRON_SECRET`):
+
+```bash
+curl "https://YOUR-APP.vercel.app/api/telegram?secret=CRON_SECRET"
+```
+
+Ответ покажет `ensure`, `probe.protection`, `deploymentMissing`, `lastError`. Дальше `/start` боту.
+
+Запасной канал, если webhook всё ещё режется: cron каждую минуту на `GET /api/telegram/poll?secret=CRON_SECRET` (getUpdates). Нельзя одновременно с рабочим webhook.
+
 ## Секреты проектов
 
 Можно отдать Big Brother любые данные — они живут только в **env Vercel этого монитора**:
@@ -75,4 +94,5 @@ DEAL_POIZON_INTERNAL_SECRET=...
 | `/api/check?mode=deep\|full\|shallow&site=` | Прогон проб |
 | `/api/report` | Push ошибок с сайтов |
 | `/api/status` | JSON |
-| `/api/telegram` | Бот |
+| `/api/telegram` | Бот (POST webhook; GET + secret = диагностика и setWebhook) |
+| `/api/telegram/poll` | Fallback getUpdates (нужен `CRON_SECRET`) |

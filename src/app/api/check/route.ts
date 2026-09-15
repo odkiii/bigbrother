@@ -4,6 +4,7 @@ import {
   requireSecret,
 } from "@/lib/auth";
 import { getSites, getSiteById } from "@/lib/sites";
+import { ensureTelegramWebhook } from "@/lib/telegram";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -50,12 +51,18 @@ async function handleCheck(request: Request) {
   }
 
   const { results, alertsSent } = await runHealthSweep(sites, { mode });
+  const telegram = await ensureTelegramWebhook().catch((err) => ({
+    ok: false,
+    action: "error" as const,
+    message: err instanceof Error ? err.message : String(err),
+  }));
 
   return NextResponse.json({
     ok: true,
     mode,
     checked: results.length,
     alertsSent,
+    telegram,
     results,
   });
 }
