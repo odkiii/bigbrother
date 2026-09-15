@@ -1,11 +1,15 @@
 import {
   claimDedupe,
+  clearDownSince,
+  getDownSince,
   getSiteStatus,
   isMuted,
+  markDownSince,
   pushError,
   saveSiteStatus,
 } from "@/lib/redis";
-import { getSiteById } from "@/lib/sites";
+import { getSiteByIdManaged } from "@/lib/sites";
+import { formatDowntimeHuman } from "@/lib/telegram-format";
 import { sendTelegramMessage } from "@/lib/telegram";
 import type {
   ReportedError,
@@ -22,6 +26,11 @@ const DOWN_DEDUPE_SEC = 15 * 60;
 const DEGRADED_DEDUPE_SEC = 20 * 60;
 const ERROR_DEDUPE_SEC = 5 * 60;
 
+/** Escalate private alerts after continuous downtime. */
+const ESCALATION_HOURS = [1, 3, 6, 12] as const;
+/** Keep escalation dedupe long enough to not re-fire until recovered. */
+const ESCALATION_DEDUPE_SEC = 14 * 24 * 60 * 60;
+
 export async function runHealthSweep(
   sites: SiteConfig[],
   options: DeepRunOptions = { mode: "deep" },
@@ -37,87 +46,170 @@ export async function runHealthSweep(
     await saveSiteStatus(result);
 
     const muted = await isMuted(result.siteId);
-    if (muted) continue;
-
     const site = sites.find((s) => s.id === result.siteId);
     const name = site?.name ?? result.siteId;
     const summary = result.probeSummary
-      ? `probes: ${result.probeSummary.total}, fail: ${result.probeSummary.failed}, warn: ${result.probeSummary.warnings}`
+      ? `пробы: ${result.probeSummary.total}, ошибок: ${result.probeSummary.failed}, предупр.: ${result.probeSummary.warnings}`
       : "";
 
     if (result.status === "down") {
-      const key = `down:${result.siteId}:${hashLite(result.error ?? "down")}`;
-      const fresh = await claimDedupe(key, DOWN_DEDUPE_SEC);
-      const wasOk =
-        !previous || previous.status === "up" || previous.status === "degraded";
-      if (fresh || wasOk) {
-        const details = (result.findings ?? [])
-          .filter((f) => !f.ok)
-          .slice(0, 8)
-          .map((f) => `• [${f.kind}/${f.severity}] ${f.name}: ${f.message}`)
-          .join("\n");
-        const ok = await sendTelegramMessage(
-          [
-            `🔴 PROBLEM: ${name}`,
-            `url: ${result.url}`,
-            summary,
-            details || `error: ${result.error ?? "unknown"}`,
-            `at: ${result.checkedAt}`,
-          ].join("\n"),
-        );
-        if (ok.ok) alertsSent += 1;
+      const downSince = await markDownSince(result.siteId, result.checkedAt);
 
-        // Also store as probe error for /errors
-        await pushError({
-          id: randomUUID(),
-          siteId: result.siteId,
-          message: result.error ?? "probe failures",
-          source: "probe",
-          url: result.url,
-          receivedAt: result.checkedAt,
-          meta: { findings: result.findings?.slice(0, 10) },
-        });
+      if (!muted) {
+        const key = `down:${result.siteId}:${hashLite(result.error ?? "down")}`;
+        const fresh = await claimDedupe(key, DOWN_DEDUPE_SEC);
+        const wasOk =
+          !previous ||
+          previous.status === "up" ||
+          previous.status === "degraded";
+        if (fresh || wasOk) {
+          const details = (result.findings ?? [])
+            .filter((f) => !f.ok)
+            .slice(0, 8)
+            .map(
+              (f) =>
+                `• [${f.kind}/${f.severity}] ${f.name}: ${f.message}${
+                  f.url ? `\n  ${f.url}` : ""
+                }`,
+            )
+            .join("\n");
+          const ok = await sendTelegramMessage(
+            [
+              `🔴 ПРОБЛЕМА: ${name}`,
+              `url: ${result.url}`,
+              summary,
+              details || `ошибка: ${result.error ?? "неизвестно"}`,
+              `http: ${result.httpStatus ?? "нет ответа"}`,
+              `latency: ${result.latencyMs ?? "?"}ms`,
+              `с: ${downSince}`,
+              `at: ${result.checkedAt}`,
+              "",
+              "Подробности: /deep " + result.siteId,
+            ].join("\n"),
+          );
+          if (ok.ok) alertsSent += 1;
+
+          await pushError({
+            id: randomUUID(),
+            siteId: result.siteId,
+            message: result.error ?? "probe failures",
+            source: "probe",
+            url: result.url,
+            receivedAt: result.checkedAt,
+            meta: { findings: result.findings?.slice(0, 10) },
+          });
+        }
+
+        const escalated = await maybeSendEscalation(
+          result,
+          name,
+          downSince,
+        );
+        if (escalated) alertsSent += 1;
       }
     } else if (result.status === "degraded") {
-      const key = `degraded:${result.siteId}:${hashLite(result.error ?? "deg")}`;
-      const fresh = await claimDedupe(key, DEGRADED_DEDUPE_SEC);
-      if (fresh) {
-        const details = (result.findings ?? [])
-          .filter((f) => !f.ok)
-          .slice(0, 8)
-          .map((f) => `• [${f.kind}] ${f.name}: ${f.message}`)
-          .join("\n");
+      // Still partially up — clear hard-down clock but alert on degrade
+      await clearDownSince(result.siteId);
+
+      if (!muted) {
+        const key = `degraded:${result.siteId}:${hashLite(result.error ?? "deg")}`;
+        const fresh = await claimDedupe(key, DEGRADED_DEDUPE_SEC);
+        if (fresh) {
+          const details = (result.findings ?? [])
+            .filter((f) => !f.ok)
+            .slice(0, 8)
+            .map((f) => `• [${f.kind}] ${f.name}: ${f.message}`)
+            .join("\n");
+          const ok = await sendTelegramMessage(
+            [
+              `🟡 ДЕГРАДАЦИЯ: ${name}`,
+              `url: ${result.url}`,
+              summary,
+              details,
+              `at: ${result.checkedAt}`,
+              "",
+              "Подробности: /deep " + result.siteId,
+            ].join("\n"),
+          );
+          if (ok.ok) alertsSent += 1;
+        }
+      }
+    } else if (result.status === "up") {
+      const wasDown =
+        previous &&
+        (previous.status === "down" || previous.status === "degraded");
+      const downSince = await getDownSince(result.siteId);
+      await clearDownSince(result.siteId);
+
+      if (!muted && wasDown) {
+        const downtime = downSince
+          ? formatDowntimeHuman(
+              Date.now() - new Date(downSince).getTime(),
+            )
+          : null;
         const ok = await sendTelegramMessage(
           [
-            `🟡 DEGRADED: ${name}`,
+            `🟢 СНОВА ОК: ${name}`,
             `url: ${result.url}`,
             summary,
-            details,
+            `http: ${result.httpStatus}`,
+            `latency: ${result.latencyMs ?? "?"}ms`,
+            downtime ? `простой длился: ${downtime}` : null,
             `at: ${result.checkedAt}`,
-          ].join("\n"),
+          ]
+            .filter(Boolean)
+            .join("\n"),
         );
         if (ok.ok) alertsSent += 1;
       }
-    } else if (
-      previous &&
-      (previous.status === "down" || previous.status === "degraded") &&
-      result.status === "up"
-    ) {
-      const ok = await sendTelegramMessage(
-        [
-          `🟢 OK again: ${name}`,
-          `url: ${result.url}`,
-          summary,
-          `http: ${result.httpStatus}`,
-          `latency: ${result.latencyMs ?? "?"}ms`,
-          `at: ${result.checkedAt}`,
-        ].join("\n"),
-      );
-      if (ok.ok) alertsSent += 1;
     }
   }
 
   return { results, alertsSent };
+}
+
+async function maybeSendEscalation(
+  result: SiteCheckResult,
+  name: string,
+  downSinceIso: string,
+): Promise<boolean> {
+  const sinceMs = new Date(downSinceIso).getTime();
+  if (!Number.isFinite(sinceMs)) return false;
+  const elapsedMs = Date.now() - sinceMs;
+  const elapsedH = elapsedMs / 3_600_000;
+
+  // Fire the highest crossed threshold that hasn't been claimed yet
+  // (so if we missed 1h due to downtime of the monitor, 3h still fires).
+  let fired = false;
+  for (const hours of ESCALATION_HOURS) {
+    if (elapsedH < hours) break;
+    // Include downSince so a new outage after recovery can escalate again.
+    const key = `escalate:${result.siteId}:${hours}h:${downSinceIso}`;
+    const fresh = await claimDedupe(key, ESCALATION_DEDUPE_SEC);
+    if (!fresh) continue;
+
+    const details = (result.findings ?? [])
+      .filter((f) => !f.ok)
+      .slice(0, 6)
+      .map((f) => `• ${f.name}: ${f.message}`)
+      .join("\n");
+
+    const sent = await sendTelegramMessage(
+      [
+        `🚨 ЭСКАЛАЦИЯ ${hours}ч: ${name} всё ещё лежит`,
+        `не работает уже: ${formatDowntimeHuman(elapsedMs)}`,
+        `с: ${downSinceIso}`,
+        `url: ${result.url}`,
+        details || `ошибка: ${result.error ?? "нет ответа"}`,
+        `последняя проверка: ${result.checkedAt}`,
+        "",
+        "Проверь хостинг / оплату / DNS.",
+        `Команда: /deep ${result.siteId}`,
+      ].join("\n"),
+    );
+    if (sent.ok) fired = true;
+  }
+  return fired;
 }
 
 export async function ingestReportedError(input: {
@@ -128,7 +220,7 @@ export async function ingestReportedError(input: {
   source?: ReportedError["source"];
   meta?: Record<string, unknown>;
 }): Promise<{ stored: boolean; alerted: boolean; id: string }> {
-  const site = getSiteById(input.siteId);
+  const site = await getSiteByIdManaged(input.siteId);
   const error: ReportedError = {
     id: randomUUID(),
     siteId: input.siteId,
@@ -156,12 +248,15 @@ export async function ingestReportedError(input: {
 
   const name = site?.name ?? input.siteId;
   const lines = [
-    `⚠️ ERROR: ${name}`,
-    `source: ${error.source}`,
-    `message: ${error.message}`,
+    `⚠️ ОШИБКА: ${name}`,
+    `источник: ${error.source}`,
+    `сообщение: ${error.message}`,
   ];
-  if (error.url) lines.push(`page: ${error.url}`);
+  if (error.url) lines.push(`страница: ${error.url}`);
   if (error.stack) lines.push(`stack:\n${error.stack.slice(0, 1500)}`);
+  if (error.meta) {
+    lines.push(`meta: ${JSON.stringify(error.meta).slice(0, 500)}`);
+  }
   lines.push(`id: ${error.id}`);
   lines.push(`at: ${error.receivedAt}`);
 

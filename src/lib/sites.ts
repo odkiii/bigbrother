@@ -46,3 +46,11 @@ export function getSites(): SiteConfig[] {
 export function getSiteById(id: string): SiteConfig | undefined {
   return getSites().find((s) => s.id === id);
 }
+
+/** Async lookup including Redis add/remove overrides. */
+export async function getSiteByIdManaged(
+  id: string,
+): Promise<SiteConfig | undefined> {
+  const { findManagedSite } = await import("@/lib/site-registry");
+  return findManagedSite(id);
+}

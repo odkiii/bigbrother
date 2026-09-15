@@ -1,10 +1,10 @@
 import { getAllSiteStatuses, getCronLastRun, listErrors } from "@/lib/redis";
-import { getSites } from "@/lib/sites";
+import { getManagedSites } from "@/lib/site-registry";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const sites = getSites();
+  const sites = await getManagedSites();
   let statuses: Awaited<ReturnType<typeof getAllSiteStatuses>> = {};
   let errors: Awaited<ReturnType<typeof listErrors>> = [];
   let lastCron: Awaited<ReturnType<typeof getCronLastRun>> = null;

@@ -1,10 +1,14 @@
 import { Redis } from "@upstash/redis";
-import type { ReportedError, SiteCheckResult } from "@/lib/types";
+import type { ReportedError, SiteCheckResult, SiteConfig } from "@/lib/types";
 
 const ERRORS_KEY = "bb:errors";
 const STATUS_PREFIX = "bb:status:";
 const MUTE_PREFIX = "bb:mute:";
 const DEDUPE_PREFIX = "bb:dedupe:";
+const EXTRA_SITES_KEY = "bb:sites:extra";
+const REMOVED_SITES_KEY = "bb:sites:removed";
+const DOWN_SINCE_PREFIX = "bb:down:since:";
+const TG_STATE_PREFIX = "bb:tg:state:";
 const MAX_ERRORS = 100;
 
 let redis: Redis | null = null;
@@ -141,4 +145,136 @@ export async function claimDedupe(
   const full = `${DEDUPE_PREFIX}${key}`;
   const ok = await r.set(full, "1", { nx: true, ex: ttlSeconds });
   return ok === "OK";
+}
+
+/** ---- Managed sites (Telegram add/remove) ---- */
+
+export async function getExtraSites(): Promise<SiteConfig[]> {
+  const r = getRedis();
+  if (!r) return [];
+  const raw = await r.get<SiteConfig[] | string>(EXTRA_SITES_KEY);
+  if (!raw) return [];
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw) as SiteConfig[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return Array.isArray(raw) ? raw : [];
+}
+
+export async function addExtraSite(site: SiteConfig): Promise<boolean> {
+  const r = getRedis();
+  if (!r) return false;
+  const list = await getExtraSites();
+  const next = [...list.filter((s) => s.id !== site.id), site];
+  await r.set(EXTRA_SITES_KEY, next);
+  // If it was previously soft-removed, restore it
+  await restoreSiteId(site.id);
+  return true;
+}
+
+export async function removeExtraSite(siteId: string): Promise<boolean> {
+  const r = getRedis();
+  if (!r) return false;
+  const list = await getExtraSites();
+  const next = list.filter((s) => s.id !== siteId);
+  await r.set(EXTRA_SITES_KEY, next);
+  return true;
+}
+
+export async function getRemovedSiteIds(): Promise<string[]> {
+  const r = getRedis();
+  if (!r) return [];
+  const raw = await r.get<string[] | string>(REMOVED_SITES_KEY);
+  if (!raw) return [];
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw) as string[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return Array.isArray(raw) ? raw : [];
+}
+
+export async function removeSiteId(siteId: string): Promise<boolean> {
+  const r = getRedis();
+  if (!r) return false;
+  const list = await getRemovedSiteIds();
+  if (!list.includes(siteId)) {
+    await r.set(REMOVED_SITES_KEY, [...list, siteId]);
+  }
+  return true;
+}
+
+export async function restoreSiteId(siteId: string): Promise<boolean> {
+  const r = getRedis();
+  if (!r) return false;
+  const list = await getRemovedSiteIds();
+  await r.set(
+    REMOVED_SITES_KEY,
+    list.filter((id) => id !== siteId),
+  );
+  return true;
+}
+
+/** ---- Downtime tracking for escalation alerts ---- */
+
+export async function getDownSince(siteId: string): Promise<string | null> {
+  const r = getRedis();
+  if (!r) return null;
+  const v = await r.get<string>(`${DOWN_SINCE_PREFIX}${siteId}`);
+  return v ?? null;
+}
+
+export async function markDownSince(
+  siteId: string,
+  iso?: string,
+): Promise<string> {
+  const r = getRedis();
+  const at = iso ?? new Date().toISOString();
+  if (!r) return at;
+  const existing = await getDownSince(siteId);
+  if (existing) return existing;
+  await r.set(`${DOWN_SINCE_PREFIX}${siteId}`, at);
+  return at;
+}
+
+export async function clearDownSince(siteId: string): Promise<void> {
+  const r = getRedis();
+  if (!r) return;
+  await r.del(`${DOWN_SINCE_PREFIX}${siteId}`);
+}
+
+/** ---- Telegram conversation state (add flow) ---- */
+
+export type TelegramChatState =
+  | { step: "add_url" }
+  | { step: "add_name"; url: string }
+  | { step: "remove_pick" };
+
+export async function getTelegramChatState(
+  chatId: string,
+): Promise<TelegramChatState | null> {
+  const r = getRedis();
+  if (!r) return null;
+  return (await r.get<TelegramChatState>(`${TG_STATE_PREFIX}${chatId}`)) ?? null;
+}
+
+export async function setTelegramChatState(
+  chatId: string,
+  state: TelegramChatState | null,
+): Promise<void> {
+  const r = getRedis();
+  if (!r) return;
+  const key = `${TG_STATE_PREFIX}${chatId}`;
+  if (!state) {
+    await r.del(key);
+    return;
+  }
+  await r.set(key, state, { ex: 15 * 60 });
 }

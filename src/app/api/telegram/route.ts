@@ -84,7 +84,7 @@ export async function GET(request: Request) {
     ensure: ensured,
     nextStep:
       ensured?.ok && currentUrl
-        ? "Напиши боту в Telegram: /start затем /sites"
+        ? "Напиши боту: /start — меню с кнопками, /help — описание. Эскалации 1/3/6/12ч идут в TELEGRAM_CHAT_ID."
         : "Смотри ensure.message / lastError. Проверь TELEGRAM_BOT_TOKEN и BIGBROTHER_PUBLIC_URL.",
     hint: hintFrom(probe, Boolean(token), ensured?.ok === true),
   });

@@ -1,11 +1,11 @@
 import { listErrors, getAllSiteStatuses } from "@/lib/redis";
-import { getSites } from "@/lib/sites";
+import { getManagedSites } from "@/lib/site-registry";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
 export async function GET() {
-  const sites = getSites();
+  const sites = await getManagedSites();
   const statuses = await getAllSiteStatuses(sites.map((s) => s.id));
   const errors = await listErrors(30);
 
