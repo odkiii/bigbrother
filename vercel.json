@@ -4,8 +4,8 @@
   "regions": ["iad1"],
   "crons": [
     {
-      "path": "/api/check?mode=deep",
-      "schedule": "0 9 * * *"
+      "path": "/api/check?mode=deep&source=vercel-cron",
+      "schedule": "0 6 * * *"
     }
   ],
   "headers": [

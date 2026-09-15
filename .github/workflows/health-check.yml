@@ -1,0 +1,61 @@
+# Permanent health checks every 5 minutes.
+# Vercel Hobby cron can only run once per day — this workflow is the real interval.
+#
+# One-time setup:
+#   GitHub repo → Settings → Secrets and variables → Actions
+#   Add secret CRON_SECRET = same value as Vercel Production CRON_SECRET
+#   Optional: BIGBROTHER_URL = https://bigbrother-watchingyou.vercel.app
+name: Health check cron
+
+on:
+  schedule:
+    # Every 5 minutes (UTC). GitHub may delay a few minutes on free plans.
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Probe mode"
+        required: false
+        default: deep
+        type: choice
+        options:
+          - shallow
+          - deep
+          - full
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Run Big Brother /api/check
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BIGBROTHER_URL: ${{ vars.BIGBROTHER_URL }}
+          MODE: ${{ github.event.inputs.mode || 'deep' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::Missing GitHub Actions secret CRON_SECRET (must match Vercel Production)"
+            exit 1
+          fi
+          BASE="${BIGBROTHER_URL:-https://bigbrother-watchingyou.vercel.app}"
+          BASE="${BASE%/}"
+          URL="${BASE}/api/check?mode=${MODE}&source=github-actions"
+          echo "GET ${URL}"
+          HTTP=$(curl -sS -o /tmp/bb-check.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "User-Agent: BigBrotherGitHubCron/1.0" \
+            --max-time 90 \
+            "$URL")
+          echo "HTTP ${HTTP}"
+          head -c 2000 /tmp/bb-check.json; echo
+          test "$HTTP" = "200"
+          python3 - <<'PY'
+          import json,sys
+          d=json.load(open("/tmp/bb-check.json"))
+          assert d.get("ok") is True, d
+          print("checked", d.get("checked"), "alerts", d.get("alertsSent"), "mode", d.get("mode"))
+          for r in d.get("results") or []:
+              print(f"  {r.get('siteId')}: {r.get('status')} http={r.get('httpStatus')} fail={ (r.get('probeSummary') or {}).get('failed') }")
+          PY

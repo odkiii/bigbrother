@@ -29,12 +29,13 @@
 1. Upstash Redis + Telegram bot (как раньше) — env из [`.env.example`](.env.example)  
 2. Задеплой на Vercel  
 3. Webhook бота → `/api/telegram?secret=...`  
-4. **cron-job.org каждые 5 мин:**  
-   `GET https://YOUR-APP.vercel.app/api/check?mode=deep`  
-   Header: `Authorization: Bearer CRON_SECRET`  
-5. Положи в Vercel env строки БД (`DOCTOR_DATABASE_URL`, …) — проверки включатся сами  
-6. Допиши формы/селекторы/API в `probes/<siteId>.json` и задеплой снова  
-7. SDK на сайты — [`sdk/README.md`](sdk/README.md)
+4. **Постоянный cron каждые 5 мин** — GitHub Actions (`.github/workflows/health-check.yml`):
+   - Repo → Settings → Secrets → Actions → `CRON_SECRET` (= Vercel Production)
+   - Actions → «Health check cron» → Run workflow
+5. Vercel Cron (Hobby) — раз в сутки `0 6 * * *` UTC на `/api/check?mode=deep` (Bearer `CRON_SECRET` шлётся сам)
+6. Положи в Vercel env строки БД (`DOCTOR_DATABASE_URL`, …) — проверки включатся сами  
+7. Допиши формы/селекторы/API в `probes/<siteId>.json` и задеплой снова  
+8. SDK на сайты — [`sdk/README.md`](sdk/README.md)
 
 ## Telegram
 

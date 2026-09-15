@@ -4,6 +4,7 @@ import {
   requireSecret,
 } from "@/lib/auth";
 import { getSites, getSiteById } from "@/lib/sites";
+import { saveCronLastRun } from "@/lib/redis";
 import { ensureTelegramWebhook } from "@/lib/telegram";
 import { NextResponse } from "next/server";
 
@@ -16,8 +17,10 @@ export const maxDuration = 60;
  * Query:
  *   mode=shallow|deep|full   (default deep)
  *   site=<siteId>            optional single site
+ *   source=github-actions|vercel-cron|manual
  *
  * Auth: Authorization: Bearer <CRON_SECRET> or ?secret=
+ * Vercel Cron auto-sends Bearer CRON_SECRET when that env exists.
  */
 export async function GET(request: Request) {
   return handleCheck(request);
@@ -29,7 +32,7 @@ export async function POST(request: Request) {
 
 async function handleCheck(request: Request) {
   const secret = getBearerOrQuerySecret(request);
-  if (!requireSecret(secret, process.env.CRON_SECRET)) {
+  if (!requireSecret(secret, process.env.CRON_SECRET?.trim())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -40,6 +43,12 @@ async function handleCheck(request: Request) {
       ? modeParam
       : "deep";
   const siteId = url.searchParams.get("site");
+  const source =
+    url.searchParams.get("source") ||
+    request.headers.get("x-vercel-cron-schedule") ||
+    (request.headers.get("user-agent")?.includes("GitHubCron")
+      ? "github-actions"
+      : "manual");
 
   let sites = getSites();
   if (siteId) {
@@ -57,11 +66,26 @@ async function handleCheck(request: Request) {
     message: err instanceof Error ? err.message : String(err),
   }));
 
+  const down = results.filter((r) => r.status === "down").length;
+  const degraded = results.filter((r) => r.status === "degraded").length;
+  await saveCronLastRun({
+    at: new Date().toISOString(),
+    mode,
+    source: String(source),
+    checked: results.length,
+    alertsSent,
+    down,
+    degraded,
+  }).catch(() => undefined);
+
   return NextResponse.json({
     ok: true,
     mode,
+    source,
     checked: results.length,
     alertsSent,
+    down,
+    degraded,
     telegram,
     results,
   });

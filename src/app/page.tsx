@@ -1,4 +1,4 @@
-import { getAllSiteStatuses, listErrors } from "@/lib/redis";
+import { getAllSiteStatuses, getCronLastRun, listErrors } from "@/lib/redis";
 import { getSites } from "@/lib/sites";
 
 export const dynamic = "force-dynamic";
@@ -7,11 +7,13 @@ export default async function HomePage() {
   const sites = getSites();
   let statuses: Awaited<ReturnType<typeof getAllSiteStatuses>> = {};
   let errors: Awaited<ReturnType<typeof listErrors>> = [];
+  let lastCron: Awaited<ReturnType<typeof getCronLastRun>> = null;
   let storeError: string | null = null;
 
   try {
     statuses = await getAllSiteStatuses(sites.map((s) => s.id));
     errors = await listErrors(15);
+    lastCron = await getCronLastRun();
   } catch (err) {
     storeError = err instanceof Error ? err.message : String(err);
     console.error("[bigbrother] homepage redis failed", err);
@@ -62,6 +64,35 @@ export default async function HomePage() {
               Attention). Пересохрани CRON_SECRET → Redeploy.
             </li>
             <li>В Telegram боту: /start → /sites → /deep</li>
+          </ol>
+        </div>
+        <div className="mt-4 rounded border border-zinc-800 bg-zinc-900/60 px-3 py-3 text-sm text-zinc-300">
+          <p className="font-medium text-zinc-100">Автопроверка (cron)</p>
+          <p className="mt-1 text-zinc-400">
+            Интервал: каждые <span className="text-zinc-200">5 минут</span> через
+            GitHub Actions + раз в сутки Vercel Cron (Hobby не умеет чаще).
+          </p>
+          <p className="mt-2 font-mono text-[11px] text-zinc-500">
+            last cron:{" "}
+            {lastCron
+              ? `${lastCron.at} · ${lastCron.source} · mode=${lastCron.mode} · checked=${lastCron.checked} · down=${lastCron.down} · alerts=${lastCron.alertsSent}`
+              : "ещё не было — добавь GitHub secret CRON_SECRET и дождись schedule / Run workflow"}
+          </p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-zinc-400">
+            <li>
+              GitHub → Settings → Secrets and variables → Actions → New secret{" "}
+              <code className="text-zinc-200">CRON_SECRET</code> = тот же, что в
+              Vercel Production
+            </li>
+            <li>
+              Actions → <code className="text-zinc-200">Health check cron</code>{" "}
+              → Run workflow (проверка сразу)
+            </li>
+            <li>
+              Дальше workflow сам дергает{" "}
+              <code className="text-zinc-200">/api/check?mode=deep</code> каждые
+              5 мин; алерты уходят в Telegram
+            </li>
           </ol>
         </div>
       </header>
