@@ -69,6 +69,17 @@ curl "https://YOUR-APP.vercel.app/api/telegram?secret=CRON_SECRET"
 
 Запасной канал, если webhook всё ещё режется: cron каждую минуту на `GET /api/telegram/poll?secret=CRON_SECRET` (getUpdates). Нельзя одновременно с рабочим webhook.
 
+### Если `*.vercel.app` отдаёт platform `404 NOT_FOUND`
+
+Билд при этом может быть зелёным (`ƒ /`, `/api/telegram` в логе). Это **не** «пропала page.tsx» — edge Vercel не матчит hostname на deployment.
+
+1. **Deployment Protection → Require Log In = OFF** для Production.
+2. Проверь диагностику после деплоя:
+   - `https://YOUR-DOMAIN/ok.txt` → должно быть `bigbrother-ok`
+   - `https://YOUR-DOMAIN/api/ping` → JSON `{ ok: true, service: "bigbrother", ... }`
+3. Если оба 404 при Valid Configuration: в Vercel **Settings → General → Project Name** переименуй проект (например `bigbrother-monitor`) — появится новый `*.vercel.app`. Старый `bigbrother-iswu` удали из Domains. Пропиши новый URL в `BIGBROTHER_PUBLIC_URL` и Redeploy.
+4. Либо повесь свой custom domain (DNS A/CNAME на Vercel) вместо сломанного alias.
+
 ## Секреты проектов
 
 Можно отдать Big Brother любые данные — они живут только в **env Vercel этого монитора**:
@@ -96,3 +107,5 @@ DEAL_POIZON_INTERNAL_SECRET=...
 | `/api/status` | JSON |
 | `/api/telegram` | Бот (POST webhook; GET + secret = диагностика и setWebhook) |
 | `/api/telegram/poll` | Fallback getUpdates (нужен `CRON_SECRET`) |
+| `/api/ping` | Публичный liveness JSON (без секрета) |
+| `/ok.txt` | Статический маркер `bigbrother-ok` |
