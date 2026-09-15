@@ -35,6 +35,35 @@ export default async function HomePage() {
             /ok.txt
           </a>
         </p>
+        <div className="mt-4 rounded border border-zinc-800 bg-zinc-900/60 px-3 py-3 text-sm text-zinc-300">
+          <p className="font-medium text-zinc-100">Регистрация Telegram webhook</p>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-zinc-400">
+            <li>
+              Vercel → Settings → Environment Variables → скопируй{" "}
+              <code className="text-zinc-200">CRON_SECRET</code> (Production)
+            </li>
+            <li>
+              Открой в браузере (секрет после{" "}
+              <code className="text-zinc-200">=</code>, без пробелов):
+              <br />
+              <code className="break-all text-[11px] text-emerald-400">
+                /api/telegram?secret=ТВОЙ_CRON_SECRET&amp;force=1
+              </code>
+            </li>
+            <li>
+              В ответе должно быть{" "}
+              <code className="text-zinc-200">ensure.action: &quot;set&quot;</code>{" "}
+              или <code className="text-zinc-200">already</code>, и{" "}
+              <code className="text-zinc-200">webhookUrlSet: true</code>
+            </li>
+            <li>
+              Если снова <code className="text-zinc-200">401 Unauthorized</code> —
+              секрет не совпал с Production (пробел / старое значение / Needs
+              Attention). Пересохрани CRON_SECRET → Redeploy.
+            </li>
+            <li>В Telegram боту: /start → /sites → /deep</li>
+          </ol>
+        </div>
       </header>
 
       {storeError ? (

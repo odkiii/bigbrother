@@ -14,7 +14,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 function isTelegramWebhookAuthorized(request: Request): boolean {
-  const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const expected = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
   if (!expected) return true;
   const url = new URL(request.url);
   const query = url.searchParams.get("secret");
@@ -25,43 +25,68 @@ function isTelegramWebhookAuthorized(request: Request): boolean {
 function isOpsAuthorized(request: Request): boolean {
   const provided = getBearerOrQuerySecret(request);
   return (
-    requireSecret(provided, process.env.CRON_SECRET) ||
-    requireSecret(provided, process.env.TELEGRAM_WEBHOOK_SECRET)
+    requireSecret(provided, process.env.CRON_SECRET?.trim()) ||
+    requireSecret(provided, process.env.TELEGRAM_WEBHOOK_SECRET?.trim())
   );
 }
 
 /**
  * Telegram bot webhook.
- * Telegram native secret: header x-telegram-bot-api-secret-token
- * Optional query: ?secret=TELEGRAM_WEBHOOK_SECRET
  *
- * GET with CRON_SECRET or TELEGRAM_WEBHOOK_SECRET → diagnostics + auto-register.
+ * GET without secret → 401 + how to register (not a fake ok).
+ * GET ?secret=CRON_SECRET → diagnostics + setWebhook
+ * GET ?secret=CRON_SECRET&force=1 → always re-register webhook
+ * POST → Telegram updates (secret_token header or ?secret=)
  */
 export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const provided = getBearerOrQuerySecret(request);
+
   if (!isOpsAuthorized(request)) {
     return NextResponse.json(
-      { ok: true, service: "telegram-webhook", auth: "POST from Telegram" },
-      { status: 200 },
+      {
+        ok: false,
+        error: "Unauthorized",
+        hint:
+          "Добавь ?secret=ЗНАЧЕНИЕ_CRON_SECRET из Vercel → Settings → Environment Variables (Production). Без секрета webhook НЕ регистрируется. Пример: /api/telegram?secret=abc123&force=1",
+        hasCronSecretConfigured: Boolean(process.env.CRON_SECRET?.trim()),
+        hasWebhookSecretConfigured: Boolean(
+          process.env.TELEGRAM_WEBHOOK_SECRET?.trim(),
+        ),
+        receivedSecretLength: provided?.length ?? 0,
+      },
+      { status: 401 },
     );
   }
 
+  const force = url.searchParams.get("force") === "1";
   const { token, chatId } = getTelegramConfig();
   const probe = await probePublicTelegramRoute();
-  const webhook = token ? await getWebhookInfo() : null;
-  const ensured = token ? await ensureTelegramWebhook() : null;
-  const currentUrl = webhook?.result?.url ?? "";
+  const webhookBefore = token ? await getWebhookInfo() : null;
+  const ensured = token ? await ensureTelegramWebhook({ force }) : null;
+  const webhookAfter = token ? await getWebhookInfo() : null;
+  const currentUrl = webhookAfter?.result?.url ?? "";
 
   return NextResponse.json({
-    ok: Boolean(token) && probe.reachable && ensured?.ok !== false,
+    ok: Boolean(token) && ensured?.ok !== false,
     hasToken: Boolean(token),
     hasChatId: Boolean(chatId),
+    force,
     publicUrl: telegramWebhookDisplayUrl(),
-    webhookHost: hostOnly(currentUrl),
-    lastError: webhook?.result?.last_error_message ?? null,
-    pendingUpdates: webhook?.result?.pending_update_count ?? null,
+    webhookUrlHost: hostOnly(currentUrl),
+    webhookUrlSet: Boolean(currentUrl),
+    lastError: webhookAfter?.result?.last_error_message ?? null,
+    pendingUpdates: webhookAfter?.result?.pending_update_count ?? null,
+    webhookBefore: webhookBefore?.result?.url
+      ? hostOnly(webhookBefore.result.url)
+      : null,
     probe,
     ensure: ensured,
-    hint: hintFrom(probe, Boolean(token)),
+    nextStep:
+      ensured?.ok && currentUrl
+        ? "Напиши боту в Telegram: /start затем /sites"
+        : "Смотри ensure.message / lastError. Проверь TELEGRAM_BOT_TOKEN и BIGBROTHER_PUBLIC_URL.",
+    hint: hintFrom(probe, Boolean(token), ensured?.ok === true),
   });
 }
 
@@ -92,13 +117,13 @@ function hostOnly(url: string): string | null {
 function hintFrom(
   probe: Awaited<ReturnType<typeof probePublicTelegramRoute>>,
   hasToken: boolean,
+  ensuredOk: boolean,
 ): string {
-  if (!hasToken) return "Set TELEGRAM_BOT_TOKEN in Vercel env, then GET this URL with ?secret=CRON_SECRET";
+  if (!hasToken) return "Set TELEGRAM_BOT_TOKEN in Vercel Production env";
   if (probe.deploymentMissing)
-    return "Production alias is dead (DEPLOYMENT_NOT_FOUND). Set BIGBROTHER_PUBLIC_URL to a live domain and assign it in Vercel.";
+    return "BIGBROTHER_PUBLIC_URL points to a dead host";
   if (probe.protection)
-    return "Vercel Deployment Protection is blocking Telegram. Disable SSO on Production, or enable Protection Bypass for Automation (VERCEL_AUTOMATION_BYPASS_SECRET).";
-  if (!probe.reachable)
-    return "Webhook URL is not reachable. Set BIGBROTHER_PUBLIC_URL and re-register via GET /api/telegram?secret=CRON_SECRET";
-  return "Webhook path looks reachable. Send /start to the bot.";
+    return "Turn off Vercel Deployment Protection (Require Log In) for Production";
+  if (!ensuredOk) return "setWebhook failed — see ensure.message";
+  return "Webhook OK. Message the bot: /start";
 }

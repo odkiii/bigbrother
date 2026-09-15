@@ -148,26 +148,35 @@ export async function setTelegramWebhook(): Promise<{
   ok: boolean;
   description?: string;
   url?: string;
+  deliveryUrlHost?: string;
+  usedSecretToken?: boolean;
 }> {
   const url = telegramWebhookDeliveryUrl();
   if (!url) {
     return {
       ok: false,
       description:
-        "No public URL. Set BIGBROTHER_PUBLIC_URL to the live Vercel domain.",
+        "No public URL. Set BIGBROTHER_PUBLIC_URL to the live Vercel domain (no trailing slash).",
     };
   }
   const secret_token = telegramSecretToken();
+  const body: Record<string, unknown> = {
+    url,
+    drop_pending_updates: true,
+    allowed_updates: ["message", "edited_message"],
+  };
+  if (secret_token) body.secret_token = secret_token;
+
   const data = await telegramApi<{ ok: boolean; description?: string }>(
     "setWebhook",
-    {
-      url,
-      secret_token,
-      drop_pending_updates: false,
-      allowed_updates: ["message", "edited_message"],
-    },
+    body,
   );
-  return { ...data, url: telegramWebhookDisplayUrl() };
+  return {
+    ...data,
+    url: telegramWebhookDisplayUrl(),
+    deliveryUrlHost: hostOf(url),
+    usedSecretToken: Boolean(secret_token),
+  };
 }
 
 export type TelegramUpdateItem = {
@@ -198,9 +207,12 @@ export type WebhookEnsureResult = {
 
 /**
  * Register webhook if missing or pointing at the wrong host.
- * Safe to call from cron: only setWebhook when URL host differs.
+ * Pass force=true to always call setWebhook (fixes stale secret_token).
  */
-export async function ensureTelegramWebhook(): Promise<WebhookEnsureResult> {
+export async function ensureTelegramWebhook(options?: {
+  force?: boolean;
+}): Promise<WebhookEnsureResult> {
+  const force = options?.force === true;
   const { token } = getTelegramConfig();
   if (!token) {
     return {
@@ -236,7 +248,7 @@ export async function ensureTelegramWebhook(): Promise<WebhookEnsureResult> {
   const lastError = info.result?.last_error_message;
   const pending = info.result?.pending_update_count;
 
-  if (sameHost && !lastError) {
+  if (sameHost && !lastError && !force) {
     return {
       ok: true,
       action: "already",
