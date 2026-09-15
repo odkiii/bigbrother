@@ -14,8 +14,12 @@ export type TelegramUpdate = {
   callback_query?: {
     id: string;
     data?: string;
-    from: { id: number };
-    message?: { chat: { id: number } };
+    from: { id: number; username?: string };
+    message?: {
+      message_id: number;
+      chat: { id: number; type: string };
+      text?: string;
+    };
   };
 };
 
@@ -96,6 +100,7 @@ async function telegramApi<T>(
 export async function sendTelegramMessage(
   text: string,
   chatIdOverride?: string,
+  options?: { reply_markup?: unknown },
 ): Promise<{ ok: boolean; description?: string }> {
   const { token, chatId } = getTelegramConfig();
   const target = chatIdOverride || chatId;
@@ -104,18 +109,37 @@ export async function sendTelegramMessage(
     return { ok: false, description: "Telegram not configured" };
   }
 
+  const body: Record<string, unknown> = {
+    chat_id: target,
+    text: truncate(text, 4000),
+    disable_web_page_preview: true,
+  };
+  if (options?.reply_markup) body.reply_markup = options.reply_markup;
+
   const data = await telegramApi<{ ok: boolean; description?: string }>(
     "sendMessage",
-    {
-      chat_id: target,
-      text: truncate(text, 4000),
-      disable_web_page_preview: true,
-    },
+    body,
   );
   if (!data.ok) {
     console.error("[bigbrother] Telegram send failed", data);
   }
   return data;
+}
+
+export async function editTelegramMessage(
+  chatId: string,
+  messageId: number,
+  text: string,
+  reply_markup?: unknown,
+): Promise<{ ok: boolean; description?: string }> {
+  const body: Record<string, unknown> = {
+    chat_id: chatId,
+    message_id: messageId,
+    text: truncate(text, 4000),
+    disable_web_page_preview: true,
+  };
+  if (reply_markup) body.reply_markup = reply_markup;
+  return telegramApi("editMessageText", body);
 }
 
 export async function answerTelegramCallback(
@@ -163,7 +187,7 @@ export async function setTelegramWebhook(): Promise<{
   const body: Record<string, unknown> = {
     url,
     drop_pending_updates: true,
-    allowed_updates: ["message", "edited_message"],
+    allowed_updates: ["message", "edited_message", "callback_query"],
   };
   if (secret_token) body.secret_token = secret_token;
 
@@ -179,10 +203,17 @@ export async function setTelegramWebhook(): Promise<{
   };
 }
 
+export async function setTelegramBotCommands(
+  commands: Array<{ command: string; description: string }>,
+): Promise<{ ok: boolean; description?: string }> {
+  return telegramApi("setMyCommands", { commands });
+}
+
 export type TelegramUpdateItem = {
   update_id: number;
   message?: TelegramMessage;
   edited_message?: TelegramMessage;
+  callback_query?: TelegramUpdate["callback_query"];
 };
 
 export async function getTelegramUpdates(offset: number): Promise<{
@@ -193,7 +224,7 @@ export async function getTelegramUpdates(offset: number): Promise<{
   return telegramApi("getUpdates", {
     offset,
     timeout: 0,
-    allowed_updates: ["message", "edited_message"],
+    allowed_updates: ["message", "edited_message", "callback_query"],
   });
 }
 
@@ -249,6 +280,12 @@ export async function ensureTelegramWebhook(options?: {
   const pending = info.result?.pending_update_count;
 
   if (sameHost && !lastError && !force) {
+    try {
+      const { BOT_COMMANDS } = await import("@/lib/telegram-ui");
+      await setTelegramBotCommands(BOT_COMMANDS);
+    } catch {
+      /* ignore */
+    }
     return {
       ok: true,
       action: "already",
@@ -267,6 +304,14 @@ export async function ensureTelegramWebhook(options?: {
       pending,
     };
   }
+
+  try {
+    const { BOT_COMMANDS } = await import("@/lib/telegram-ui");
+    await setTelegramBotCommands(BOT_COMMANDS);
+  } catch (err) {
+    console.warn("[bigbrother] setMyCommands failed", err);
+  }
+
   return {
     ok: true,
     action: "set",

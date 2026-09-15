@@ -3,8 +3,8 @@ import {
   getBearerOrQuerySecret,
   requireSecret,
 } from "@/lib/auth";
-import { getSites, getSiteById } from "@/lib/sites";
 import { saveCronLastRun } from "@/lib/redis";
+import { findManagedSite, getManagedSites } from "@/lib/site-registry";
 import { ensureTelegramWebhook } from "@/lib/telegram";
 import { NextResponse } from "next/server";
 
@@ -50,9 +50,9 @@ async function handleCheck(request: Request) {
       ? "github-actions"
       : "manual");
 
-  let sites = getSites();
+  let sites = await getManagedSites();
   if (siteId) {
-    const one = getSiteById(siteId);
+    const one = await findManagedSite(siteId);
     if (!one) {
       return NextResponse.json({ error: `Unknown site ${siteId}` }, { status: 404 });
     }
