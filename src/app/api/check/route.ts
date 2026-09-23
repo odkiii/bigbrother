@@ -3,6 +3,7 @@ import {
   getBearerOrQuerySecret,
   requireSecret,
 } from "@/lib/auth";
+import { verifyGitHubActionsOidc } from "@/lib/github-oidc";
 import { saveCronLastRun } from "@/lib/redis";
 import { findManagedSite, getManagedSites } from "@/lib/site-registry";
 import { ensureTelegramWebhook } from "@/lib/telegram";
@@ -19,8 +20,10 @@ export const maxDuration = 60;
  *   site=<siteId>            optional single site
  *   source=github-actions|vercel-cron|manual
  *
- * Auth: Authorization: Bearer <CRON_SECRET> or ?secret=
- * Vercel Cron auto-sends Bearer CRON_SECRET when that env exists.
+ * Auth (any one):
+ *   - Authorization: Bearer <CRON_SECRET> or ?secret=
+ *     (Vercel Cron auto-sends Bearer CRON_SECRET when that env exists)
+ *   - Authorization: Bearer <GitHub Actions OIDC> (aud=bigbrother-cron)
  */
 export async function GET(request: Request) {
   return handleCheck(request);
@@ -32,7 +35,9 @@ export async function POST(request: Request) {
 
 async function handleCheck(request: Request) {
   const secret = getBearerOrQuerySecret(request);
-  if (!requireSecret(secret, process.env.CRON_SECRET?.trim())) {
+  const cronOk = requireSecret(secret, process.env.CRON_SECRET?.trim());
+  const oidcOk = !cronOk ? await verifyGitHubActionsOidc(secret) : false;
+  if (!cronOk && !oidcOk) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
