@@ -30,7 +30,7 @@
 2. Задеплой на Vercel  
 3. Webhook бота → `/api/telegram?secret=...`  
 4. **Постоянный cron каждые 5 мин** — GitHub Actions (`.github/workflows/health-check.yml`):
-   - Repo → Settings → Secrets → Actions → `CRON_SECRET` (= Vercel Production)
+   - Auth через **GitHub OIDC** (Actions secret не нужен). Опционально: repo secret `CRON_SECRET` = Vercel Production
    - Actions → «Health check cron» → Run workflow
 5. Vercel Cron (Hobby) — раз в сутки `0 6 * * *` UTC на `/api/check?mode=deep` (Bearer `CRON_SECRET` шлётся сам)
 6. Положи в Vercel env строки БД (`DOCTOR_DATABASE_URL`, …) — проверки включатся сами  

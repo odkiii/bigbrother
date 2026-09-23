@@ -1,10 +1,9 @@
 # Permanent health checks every 5 minutes.
 # Vercel Hobby cron can only run once per day — this workflow is the real interval.
 #
-# One-time setup:
-#   GitHub repo → Settings → Secrets and variables → Actions
-#   Add secret CRON_SECRET = same value as Vercel Production CRON_SECRET
-#   Optional: BIGBROTHER_URL = https://bigbrother-watchingyou.vercel.app
+# Auth: GitHub OIDC (no Actions secret required). Optional fallback: repo secret
+# CRON_SECRET matching Vercel Production CRON_SECRET.
+# Optional Actions variable BIGBROTHER_URL if the production domain changes.
 name: Health check cron
 
 on:
@@ -23,6 +22,10 @@ on:
           - deep
           - full
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -35,22 +38,41 @@ jobs:
           MODE: ${{ github.event.inputs.mode || 'deep' }}
         run: |
           set -euo pipefail
-          if [ -z "${CRON_SECRET:-}" ]; then
-            echo "::error::Missing GitHub Actions secret CRON_SECRET (must match Vercel Production)"
-            exit 1
-          fi
           BASE="${BIGBROTHER_URL:-https://bigbrother-watchingyou.vercel.app}"
           BASE="${BASE%/}"
           URL="${BASE}/api/check?mode=${MODE}&source=github-actions"
           echo "GET ${URL}"
+
+          if [ -n "${CRON_SECRET:-}" ]; then
+            echo "Auth: CRON_SECRET"
+            TOKEN="${CRON_SECRET}"
+          else
+            echo "Auth: GitHub OIDC (aud=bigbrother-cron)"
+            if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+              echo "::error::Missing OIDC token endpoint (need permissions.id-token: write)"
+              exit 1
+            fi
+            OIDC_JSON=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=bigbrother-cron")
+            TOKEN=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"${OIDC_JSON}")
+            if [ -z "${TOKEN}" ] || [ "${TOKEN}" = "None" ]; then
+              echo "::error::Failed to fetch GitHub OIDC token"
+              echo "${OIDC_JSON}" | head -c 500
+              exit 1
+            fi
+          fi
+
           HTTP=$(curl -sS -o /tmp/bb-check.json -w "%{http_code}" \
-            -H "Authorization: Bearer ${CRON_SECRET}" \
+            -H "Authorization: Bearer ${TOKEN}" \
             -H "User-Agent: BigBrotherGitHubCron/1.0" \
             --max-time 90 \
             "$URL")
           echo "HTTP ${HTTP}"
           head -c 2000 /tmp/bb-check.json; echo
-          test "$HTTP" = "200"
+          if [ "$HTTP" != "200" ]; then
+            echo "::error:: /api/check returned HTTP ${HTTP} (deploy OIDC auth if using GitHub OIDC)"
+            exit 1
+          fi
           python3 - <<'PY'
           import json,sys
           d=json.load(open("/tmp/bb-check.json"))

@@ -76,13 +76,16 @@ export default async function HomePage() {
             last cron:{" "}
             {lastCron
               ? `${lastCron.at} · ${lastCron.source} · mode=${lastCron.mode} · checked=${lastCron.checked} · down=${lastCron.down} · alerts=${lastCron.alertsSent}`
-              : "ещё не было — добавь GitHub secret CRON_SECRET и дождись schedule / Run workflow"}
+              : "ещё не было — дождись schedule / Actions → Health check cron → Run workflow"}
           </p>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-zinc-400">
             <li>
-              GitHub → Settings → Secrets and variables → Actions → New secret{" "}
-              <code className="text-zinc-200">CRON_SECRET</code> = тот же, что в
-              Vercel Production
+              GitHub Actions ходит в{" "}
+              <code className="text-zinc-200">/api/check</code> через{" "}
+              <span className="text-zinc-200">OIDC</span> (секрет в Actions не
+              обязателен). Vercel Production{" "}
+              <code className="text-zinc-200">CRON_SECRET</code> нужен для
+              дневного Vercel Cron.
             </li>
             <li>
               Actions → <code className="text-zinc-200">Health check cron</code>{" "}
