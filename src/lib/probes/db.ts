@@ -3,7 +3,9 @@ import postgres from "postgres";
 import mysql from "mysql2/promise";
 
 export async function runDbProbe(probe: DbProbe): Promise<ProbeFinding[]> {
-  const severity = probe.severity ?? "critical";
+  // Default warning: Vercel often cannot reach shared hosting MySQL (firewall/IP),
+  // while the public site and form→Telegram pipeline still work fine.
+  const severity = probe.severity ?? "warning";
   const url = process.env[probe.urlEnv];
   if (!url) {
     return [
