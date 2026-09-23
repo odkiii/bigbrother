@@ -1,0 +1,119 @@
+{
+  "siteId": "droptext",
+  "pages": [
+    {
+      "path": "/",
+      "name": "homepage",
+      "scanErrors": true,
+      "checkAssets": true,
+      "maxTtfbMs": 6000,
+      "maxAssetMs": 6000,
+      "assert": [
+        { "selector": "#plate" },
+        { "selector": "input.file-input" },
+        { "textIncludes": "Reels to text" },
+        { "textIncludes": "Get text" },
+        { "titleIncludes": "Droptext" }
+      ]
+    },
+    {
+      "path": "/faq",
+      "name": "faq",
+      "scanErrors": true,
+      "checkAssets": false,
+      "maxTtfbMs": 6000,
+      "assert": [
+        { "textIncludes": "FAQ" },
+        { "textIncludes": "Two minutes" }
+      ]
+    },
+    {
+      "path": "/how-it-works",
+      "name": "how-it-works",
+      "scanErrors": true,
+      "checkAssets": false,
+      "maxTtfbMs": 6000,
+      "assert": [
+        { "titleIncludes": "How Droptext works" },
+        { "textIncludes": "mp4" }
+      ]
+    },
+    {
+      "path": "/privacy",
+      "name": "privacy",
+      "scanErrors": true,
+      "checkAssets": false,
+      "maxTtfbMs": 6000,
+      "assert": [{ "titleIncludes": "Privacy" }]
+    },
+    {
+      "path": "/guides",
+      "name": "guides",
+      "scanErrors": true,
+      "checkAssets": false,
+      "maxTtfbMs": 6000,
+      "assert": [{ "titleIncludes": "More pages" }]
+    },
+    {
+      "path": "/reels-to-text",
+      "name": "landing-reels-to-text",
+      "scanErrors": true,
+      "checkAssets": false,
+      "maxTtfbMs": 6000,
+      "assert": [{ "titleIncludes": "Reels to text" }]
+    }
+  ],
+  "crawl": {
+    "startPath": "/",
+    "maxPages": 10,
+    "sameOrigin": true,
+    "scanErrors": true,
+    "checkAssets": true
+  },
+  "forms": [],
+  "apis": [
+    {
+      "name": "transcribe-method-guard",
+      "path": "/api/transcribe",
+      "method": "GET",
+      "expectStatus": [405],
+      "severity": "warning"
+    },
+    {
+      "name": "transcribe-requires-file",
+      "path": "/api/transcribe",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      "body": "file=",
+      "expectStatus": [400],
+      "expectTextIncludes": "Drop a reel or audio file.",
+      "maxMs": 8000
+    },
+    {
+      "name": "sitemap",
+      "path": "/sitemap.xml",
+      "method": "GET",
+      "expectStatus": [200],
+      "expectTextIncludes": "https://www.droptext.site/",
+      "severity": "warning"
+    }
+  ],
+  "assets": [
+    {
+      "path": "/favicon.svg",
+      "name": "favicon",
+      "maxBytes": 50000,
+      "maxMs": 4000
+    }
+  ],
+  "databases": [
+    {
+      "name": "postgres-main",
+      "driver": "postgres",
+      "urlEnv": "DROPTEXT_DATABASE_URL",
+      "query": "SELECT 1 AS ok"
+    }
+  ]
+}
