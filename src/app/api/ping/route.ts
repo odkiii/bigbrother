@@ -10,6 +10,7 @@ export async function GET() {
     service: "bigbrother",
     now: new Date().toISOString(),
     hasTelegramToken: Boolean(process.env.TELEGRAM_BOT_TOKEN),
+    hasTelegramChatId: Boolean(process.env.TELEGRAM_CHAT_ID?.trim()),
     hasRedis: Boolean(
       process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN,
     ),

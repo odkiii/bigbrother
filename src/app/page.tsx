@@ -69,8 +69,9 @@ export default async function HomePage() {
         <div className="mt-4 rounded border border-zinc-800 bg-zinc-900/60 px-3 py-3 text-sm text-zinc-300">
           <p className="font-medium text-zinc-100">Автопроверка (cron)</p>
           <p className="mt-1 text-zinc-400">
-            Интервал: каждые <span className="text-zinc-200">5 минут</span> через
-            GitHub Actions + раз в сутки Vercel Cron (Hobby не умеет чаще).
+            Интервал: каждые <span className="text-zinc-200">4 часа</span>{" "}
+            (GitHub Actions) + ежедневный чекап Vercel Cron (06:00 UTC). После
+            каждой проверки в личку уходит дайджест «где сломано».
           </p>
           <p className="mt-2 font-mono text-[11px] text-zinc-500">
             last cron:{" "}
@@ -80,21 +81,16 @@ export default async function HomePage() {
           </p>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-zinc-400">
             <li>
-              GitHub Actions ходит в{" "}
-              <code className="text-zinc-200">/api/check</code> через{" "}
-              <span className="text-zinc-200">OIDC</span> (секрет в Actions не
-              обязателен). Vercel Production{" "}
-              <code className="text-zinc-200">CRON_SECRET</code> нужен для
-              дневного Vercel Cron.
+              Vercel → env <code className="text-zinc-200">TELEGRAM_CHAT_ID</code>{" "}
+              = число из бота <code className="text-zinc-200">/chatid</code> →
+              Redeploy (без этого дайджесты не придут)
             </li>
             <li>
               Actions → <code className="text-zinc-200">Health check cron</code>{" "}
               → Run workflow (проверка сразу)
             </li>
             <li>
-              Дальше workflow сам дергает{" "}
-              <code className="text-zinc-200">/api/check?mode=deep</code> каждые
-              5 мин; алерты уходят в Telegram
+              Дальше каждые 4ч + раз в сутки: deep-check и Telegram-дайджест
             </li>
           </ol>
         </div>

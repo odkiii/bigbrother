@@ -1,15 +1,17 @@
-# Permanent health checks every 5 minutes.
-# Vercel Hobby cron can only run once per day — this workflow is the real interval.
+# Health checks every 4 hours + Telegram digest of broken sites.
+# Vercel Hobby cron (daily) remains a backup morning checkup.
 #
 # Auth: GitHub OIDC (no Actions secret required). Optional fallback: repo secret
 # CRON_SECRET matching Vercel Production CRON_SECRET.
 # Optional Actions variable BIGBROTHER_URL if the production domain changes.
+#
+# Alerts go to Vercel env TELEGRAM_CHAT_ID (required for digests).
 name: Health check cron
 
 on:
   schedule:
-    # Every 5 minutes (UTC). GitHub may delay a few minutes on free plans.
-    - cron: "*/5 * * * *"
+    # Every 4 hours (UTC). GitHub may delay a few minutes on free plans.
+    - cron: "0 */4 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -40,7 +42,7 @@ jobs:
           set -euo pipefail
           BASE="${BIGBROTHER_URL:-https://bigbrother-watchingyou.vercel.app}"
           BASE="${BASE%/}"
-          URL="${BASE}/api/check?mode=${MODE}&source=github-actions"
+          URL="${BASE}/api/check?mode=${MODE}&source=github-actions&digest=1"
           echo "GET ${URL}"
 
           if [ -n "${CRON_SECRET:-}" ]; then
@@ -77,7 +79,7 @@ jobs:
           import json,sys
           d=json.load(open("/tmp/bb-check.json"))
           assert d.get("ok") is True, d
-          print("checked", d.get("checked"), "alerts", d.get("alertsSent"), "mode", d.get("mode"))
+          print("checked", d.get("checked"), "alerts", d.get("alertsSent"), "digest", d.get("digestSent"), "mode", d.get("mode"))
           for r in d.get("results") or []:
               print(f"  {r.get('siteId')}: {r.get('status')} http={r.get('httpStatus')} fail={ (r.get('probeSummary') or {}).get('failed') }")
           PY

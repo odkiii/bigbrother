@@ -1,0 +1,24 @@
+{
+  "siteId": "odkii-builds",
+  "pages": [
+    {
+      "path": "/",
+      "name": "homepage",
+      "scanErrors": true,
+      "checkAssets": true,
+      "maxTtfbMs": 8000,
+      "maxAssetMs": 8000,
+      "assert": [{ "selector": "body" }]
+    }
+  ],
+  "crawl": {
+    "startPath": "/",
+    "maxPages": 6,
+    "sameOrigin": true,
+    "scanErrors": true,
+    "checkAssets": true
+  },
+  "forms": [],
+  "apis": [],
+  "databases": []
+}

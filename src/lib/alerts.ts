@@ -9,7 +9,10 @@ import {
   saveSiteStatus,
 } from "@/lib/redis";
 import { getSiteByIdManaged } from "@/lib/sites";
-import { formatDowntimeHuman } from "@/lib/telegram-format";
+import {
+  formatCronDigest,
+  formatDowntimeHuman,
+} from "@/lib/telegram-format";
 import { sendTelegramMessage } from "@/lib/telegram";
 import type {
   ReportedError,
@@ -166,6 +169,19 @@ export async function runHealthSweep(
   }
 
   return { results, alertsSent };
+}
+
+/** Always-on summary after scheduled checks (needs TELEGRAM_CHAT_ID). */
+export async function sendScheduledDigest(
+  results: SiteCheckResult[],
+  sites: SiteConfig[],
+  opts: { source: string; kind?: "interval" | "daily" },
+): Promise<boolean> {
+  const nameById: Record<string, string> = {};
+  for (const s of sites) nameById[s.id] = s.name;
+  const text = formatCronDigest(results, nameById, opts);
+  const sent = await sendTelegramMessage(text);
+  return sent.ok;
 }
 
 async function maybeSendEscalation(

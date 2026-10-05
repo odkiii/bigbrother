@@ -1,4 +1,4 @@
-import { runHealthSweep } from "@/lib/alerts";
+import { runHealthSweep, sendScheduledDigest } from "@/lib/alerts";
 import {
   getBearerOrQuerySecret,
   requireSecret,
@@ -71,6 +71,22 @@ async function handleCheck(request: Request) {
     message: err instanceof Error ? err.message : String(err),
   }));
 
+  const digestParam = url.searchParams.get("digest");
+  const wantDigest =
+    digestParam === "1" ||
+    digestParam === "true" ||
+    source === "github-actions" ||
+    source === "vercel-cron";
+  const digestKind =
+    source === "vercel-cron" || digestParam === "daily" ? "daily" : "interval";
+  let digestSent = false;
+  if (wantDigest && !siteId) {
+    digestSent = await sendScheduledDigest(results, sites, {
+      source: String(source),
+      kind: digestKind,
+    });
+  }
+
   const down = results.filter((r) => r.status === "down").length;
   const degraded = results.filter((r) => r.status === "degraded").length;
   await saveCronLastRun({
@@ -78,7 +94,7 @@ async function handleCheck(request: Request) {
     mode,
     source: String(source),
     checked: results.length,
-    alertsSent,
+    alertsSent: alertsSent + (digestSent ? 1 : 0),
     down,
     degraded,
   }).catch(() => undefined);
@@ -89,6 +105,7 @@ async function handleCheck(request: Request) {
     source,
     checked: results.length,
     alertsSent,
+    digestSent,
     down,
     degraded,
     telegram,

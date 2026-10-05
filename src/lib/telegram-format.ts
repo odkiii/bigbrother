@@ -138,6 +138,38 @@ export function formatStatusLine(
   return `${iconFor(result.status)} ${name}: ${STATUS_RU[result.status] ?? result.status}${sum} · ${result.latencyMs ?? "?"}ms · ${result.checkedAt}${err}`;
 }
 
+/** Periodic cron digest for TELEGRAM_CHAT_ID (every 4h / daily). */
+export function formatCronDigest(
+  results: SiteCheckResult[],
+  nameById: Record<string, string>,
+  opts?: { source?: string; kind?: "interval" | "daily" },
+): string {
+  const kind = opts?.kind === "daily" ? "Ежедневный чекап" : "Чекап (каждые 4ч)";
+  const broken = results.filter(
+    (r) => r.status === "down" || r.status === "degraded",
+  );
+  const ok = results.filter((r) => r.status === "up");
+  const lines: string[] = [
+    `📋 ${kind}`,
+    `источник: ${opts?.source ?? "cron"}`,
+    `всего: ${results.length} · 🔴 down ${results.filter((r) => r.status === "down").length} · 🟡 degraded ${results.filter((r) => r.status === "degraded").length} · 🟢 up ${ok.length}`,
+    `at: ${new Date().toISOString()}`,
+  ];
+
+  if (broken.length === 0) {
+    lines.push("", "✅ Все сайты в норме.");
+    return lines.join("\n");
+  }
+
+  lines.push("", "Где сломано:");
+  for (const r of broken) {
+    const name = nameById[r.siteId] ?? r.siteId;
+    lines.push(formatStatusLine(r, name));
+  }
+  lines.push("", "Подробнее: /deep <id> или /status");
+  return lines.join("\n");
+}
+
 export function formatErrorDetailed(e: ReportedError): string {
   const lines = [
     `• [${e.siteId}] источник: ${e.source}`,
