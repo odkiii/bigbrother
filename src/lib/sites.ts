@@ -29,6 +29,24 @@ export const DEFAULT_SITES: SiteConfig[] = [
     url: "https://deal-poizon-delivery.vercel.app",
     host: "vercel",
   },
+  {
+    id: "droptext",
+    name: "DropText",
+    url: "https://www.droptext.site",
+    host: "vercel",
+  },
+  {
+    id: "odkii-builds",
+    name: "Odkii Builds",
+    url: "https://www.odkii-builds.ru",
+    host: "vercel",
+  },
+  {
+    id: "mockdataformfiller",
+    name: "Mock Data Form Filler",
+    url: "https://www.mockdataformfiller.online",
+    host: "vercel",
+  },
 ];
 
 export function getSites(): SiteConfig[] {

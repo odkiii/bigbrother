@@ -23,19 +23,23 @@
 | `doctor-ekazheva` | https://doctor-ekazheva.ru |
 | `kateramika` | https://kateramika.ru |
 | `deal-poizon-delivery` | https://deal-poizon-delivery.vercel.app |
+| `droptext` | https://www.droptext.site |
+| `odkii-builds` | https://www.odkii-builds.ru |
+| `mockdataformfiller` | https://www.mockdataformfiller.online |
 
 ## Быстрый старт
 
 1. Upstash Redis + Telegram bot (как раньше) — env из [`.env.example`](.env.example)  
 2. Задеплой на Vercel  
 3. Webhook бота → `/api/telegram?secret=...`  
-4. **Постоянный cron каждые 5 мин** — GitHub Actions (`.github/workflows/health-check.yml`):
-   - Auth через **GitHub OIDC** (Actions secret не нужен). Опционально: repo secret `CRON_SECRET` = Vercel Production
+4. **Cron каждые 4 часа** — GitHub Actions (`.github/workflows/health-check.yml`):
+   - Auth через **GitHub OIDC**. После проверки шлёт дайджест «где сломано» в `TELEGRAM_CHAT_ID`
    - Actions → «Health check cron» → Run workflow
-5. Vercel Cron (Hobby) — раз в сутки `0 6 * * *` UTC на `/api/check?mode=deep` (Bearer `CRON_SECRET` шлётся сам)
-6. Положи в Vercel env строки БД (`DOCTOR_DATABASE_URL`, …) — проверки включатся сами  
-7. Допиши формы/селекторы/API в `probes/<siteId>.json` и задеплой снова  
-8. SDK на сайты — [`sdk/README.md`](sdk/README.md)
+5. **Ежедневный чекап** — Vercel Cron `0 6 * * *` UTC (`source=vercel-cron`, дайджест daily)
+6. Env на Vercel: `TELEGRAM_CHAT_ID` = `/chatid` в боте (иначе дайджесты не уйдут)
+7. Положи в Vercel env строки БД (`DOCTOR_DATABASE_URL`, …) — проверки включатся сами  
+8. Допиши формы/селекторы/API в `probes/<siteId>.json` и задеплой снова  
+9. SDK на сайты — [`sdk/README.md`](sdk/README.md)
 
 ## Telegram
 
