@@ -20,12 +20,5 @@
   },
   "forms": [],
   "apis": [],
-  "databases": [
-    {
-      "name": "mysql-main",
-      "driver": "mysql",
-      "urlEnv": "DOCTOR_DATABASE_URL",
-      "query": "SELECT 1 AS ok"
-    }
-  ]
+  "databases": []
 }
